@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import type { WebsocketProvider } from 'y-websocket'
+import * as Y from 'yjs'
 import type { Diagram, DiagramNode, DiagramEdge } from '@/lib/types/diagram'
 import { useDiagramStore } from '@/lib/store/diagram-store'
 import { CodeEditor } from '@/components/code-editor/CodeEditor'
@@ -20,7 +21,7 @@ import {
   getSharedEdges,
 } from '@/lib/yjs/document'
 import { syncNodesToYjs, syncEdgesToYjs } from '@/lib/yjs/react-flow-binding'
-import type * as Y from 'yjs'
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 
 type EditorMode = 'code' | 'split' | 'visual'
 
@@ -36,6 +37,7 @@ export function DiagramEditor({ diagram }: Props) {
   // Yjs state
   const [yjsProvider, setYjsProvider] = useState<WebsocketProvider | null>(null)
   const [yText, setYText] = useState<Y.Text | null>(null)
+  const [undoManager, setUndoManager] = useState<Y.UndoManager | null>(null)
   const yjsDestroyRef = useRef<(() => void) | null>(null)
 
   const initialize = useDiagramStore((s) => s.initialize)
@@ -86,15 +88,21 @@ export function DiagramEditor({ diagram }: Props) {
 
     // Expose Y.Text to CodeEditor
     const sharedCode = getSharedCode(doc)
+
+    // UndoManager tracks changes to code, nodes, and edges
+    const yNodes = getSharedNodes(doc)
+    const yEdges = getSharedEdges(doc)
+    const manager = new Y.UndoManager([sharedCode, yNodes, yEdges], {
+      captureTimeout: 500,
+    })
+
     if (!destroyed) {
       setYText(sharedCode)
       setYjsProvider(provider)
+      setUndoManager(manager)
     }
 
     // When the Yjs doc syncs, propagate changes to Zustand store
-    const yNodes = getSharedNodes(doc)
-    const yEdges = getSharedEdges(doc)
-
     const nodesObserver = () => {
       const nodes: DiagramNode[] = []
       yNodes.forEach((n) => nodes.push(n))
@@ -118,10 +126,12 @@ export function DiagramEditor({ diagram }: Props) {
       yNodes.unobserve(nodesObserver)
       yEdges.unobserve(edgesObserver)
       sharedCode.unobserve(codeObserver)
+      manager.destroy()
       destroy()
       yjsDestroyRef.current = null
       setYjsProvider(null)
       setYText(null)
+      setUndoManager(null)
     }
   // Only re-run when the diagram ID changes (different diagram loaded)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -235,6 +245,31 @@ export function DiagramEditor({ diagram }: Props) {
     },
     [mode, diagramType, setStoreEdges, setCode, yjsProvider],
   )
+
+  // -------------------------------------------------------------------------
+  // Keyboard shortcuts
+  // -------------------------------------------------------------------------
+  const handleDeleteSelected = useCallback(() => {
+    // React Flow nodes/edges carry a `selected` boolean at runtime even though
+    // our DiagramNode/DiagramEdge types don't model it – cast to access it.
+    type WithSelected = { selected?: boolean }
+    const remaining = storeNodes.filter((n) => !(n as unknown as WithSelected).selected)
+    if (remaining.length < storeNodes.length) handleCanvasNodesChange(remaining)
+    const remainingEdges = storeEdges.filter((e) => !(e as unknown as WithSelected).selected)
+    if (remainingEdges.length < storeEdges.length) handleCanvasEdgesChange(remainingEdges)
+  }, [storeNodes, storeEdges, handleCanvasNodesChange, handleCanvasEdgesChange])
+
+  const handleDeselect = useCallback(() => {
+    setStoreNodes(storeNodes.map((n) => ({ ...n, selected: false })))
+    setStoreEdges(storeEdges.map((e) => ({ ...e, selected: false })))
+  }, [storeNodes, storeEdges, setStoreNodes, setStoreEdges])
+
+  useKeyboardShortcuts({
+    onSave: save,
+    undoManager,
+    onDeleteSelected: handleDeleteSelected,
+    onDeselect: handleDeselect,
+  })
 
   // -------------------------------------------------------------------------
   // Title editing

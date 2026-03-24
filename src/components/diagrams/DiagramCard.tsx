@@ -1,3 +1,7 @@
+'use client'
+
+import { useState, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import type { DiagramMeta } from '@/lib/types/diagram'
 
 const typeIcons: Record<string, string> = {
@@ -11,10 +15,44 @@ interface Props {
 }
 
 export function DiagramCard({ diagram }: Props) {
+  const router = useRouter()
+  const [isHovered, setIsHovered] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   const relativeTime = getRelativeTime(diagram.updatedAt)
 
+  const handleDelete = useCallback(
+    async (e: React.MouseEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+
+      if (!confirm(`Delete "${diagram.title}"? This cannot be undone.`)) return
+
+      setIsDeleting(true)
+      try {
+        const res = await fetch(`/api/mcp/diagrams/${diagram.id}`, {
+          method: 'DELETE',
+        })
+        if (res.ok) {
+          router.refresh()
+        }
+      } catch {
+        setIsDeleting(false)
+      }
+    },
+    [diagram.id, diagram.title, router],
+  )
+
+  const handleNavigate = useCallback(() => {
+    router.push(`/diagram/${diagram.id}`)
+  }, [router, diagram.id])
+
   return (
-    <div className="p-4 bg-surface hover:bg-surface-hover border border-border rounded-lg transition-colors cursor-pointer group">
+    <div
+      className="relative p-4 bg-surface hover:bg-surface-hover border border-border rounded-lg transition-colors cursor-pointer group"
+      onClick={handleNavigate}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
       <div className="flex items-start justify-between mb-2">
         <span className="text-2xl opacity-40 group-hover:opacity-60 transition-opacity">
           {typeIcons[diagram.type] || '\u25A1'}
@@ -25,6 +63,30 @@ export function DiagramCard({ diagram }: Props) {
       </div>
       <h3 className="font-medium truncate">{diagram.title}</h3>
       <p className="text-xs text-muted mt-1">{relativeTime}</p>
+
+      {isHovered && (
+        <button
+          onClick={handleDelete}
+          disabled={isDeleting}
+          className="absolute top-2 right-2 p-1 rounded text-muted hover:text-red-400 hover:bg-red-400/10 transition-colors disabled:opacity-50"
+          title="Delete diagram"
+          aria-label="Delete diagram"
+        >
+          {isDeleting ? (
+            <span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path
+                d="M2 3.5h10M5.5 3.5V2.5h3v1M5 3.5l.5 7.5h3L9 3.5"
+                stroke="currentColor"
+                strokeWidth="1.3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          )}
+        </button>
+      )}
     </div>
   )
 }
