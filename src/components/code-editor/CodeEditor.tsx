@@ -1,8 +1,13 @@
 'use client'
 
-import { useCallback } from 'react'
+import { useCallback, useRef, useEffect } from 'react'
 import Editor, { type OnMount } from '@monaco-editor/react'
 import { useDiagramStore } from '@/lib/store/diagram-store'
+import type { WebsocketProvider } from 'y-websocket'
+import type * as Y from 'yjs'
+
+// Derive the editor instance type from the OnMount callback signature
+type MonacoEditorInstance = Parameters<OnMount>[0]
 
 const MERMAID_KEYWORDS = [
   'graph', 'flowchart', 'sequenceDiagram', 'classDiagram', 'stateDiagram',
@@ -51,97 +56,186 @@ const THEME = {
   },
 }
 
-export function CodeEditor() {
+interface Props {
+  /** When provided, the editor is bound to the shared Y.Text via y-monaco */
+  yText?: Y.Text | null
+  provider?: WebsocketProvider | null
+}
+
+export function CodeEditor({ yText, provider }: Props = {}) {
   const code = useDiagramStore((s) => s.code)
   const setCode = useDiagramStore((s) => s.setCode)
 
-  const handleMount: OnMount = useCallback((editor, monaco) => {
-    monaco.languages.register({ id: 'mermaid' })
+  // Hold a ref to the Monaco editor instance for the Yjs binding
+  const editorRef = useRef<MonacoEditorInstance | null>(null)
+  // Hold ref to MonacoBinding so we can destroy it on cleanup
+  const bindingRef = useRef<{ destroy: () => void } | null>(null)
 
-    monaco.languages.setMonarchTokensProvider('mermaid', {
-      keywords: MERMAID_KEYWORDS,
-      tokenizer: {
-        root: [
-          [/%%.*$/, 'comment'],
-          [/"[^"]*"/, 'string'],
-          [/'[^']*'/, 'string'],
-          [/-->|--o|--x|<-->|-.->|==>|-----|---/, 'operator'],
-          [/->>|-->>|-\)/, 'operator'],
-          [/<<|>>/, 'delimiter'],
-          [/[{}[\]()]/, 'delimiter'],
-          [/:::/, 'delimiter'],
-          [/\|/, 'delimiter'],
-          [/\b\d+\b/, 'number'],
-          [
-            /[a-zA-Z_]\w*/,
-            {
-              cases: {
-                '@keywords': 'keyword',
-                '@default': 'identifier',
+  // When yText changes (i.e. Yjs becomes available), create / recreate the binding
+  useEffect(() => {
+    if (!yText || !editorRef.current) return
+
+    // Lazily import MonacoBinding to avoid SSR issues
+    let cancelled = false
+    import('y-monaco').then(({ MonacoBinding }) => {
+      if (cancelled || !editorRef.current) return
+
+      const model = editorRef.current.getModel()
+      if (!model) return
+
+      // Destroy any previous binding
+      bindingRef.current?.destroy()
+
+      const binding = new MonacoBinding(
+        yText,
+        model,
+        new Set([editorRef.current]),
+        provider?.awareness ?? undefined,
+      )
+      bindingRef.current = binding
+
+      // Keep Zustand store in sync with Yjs text changes so the rest of the
+      // app (preview, canvas sync) continues to work
+      const observer = () => {
+        setCode(yText.toString())
+      }
+      yText.observe(observer)
+      // Return cleanup via the cancelled flag pattern
+      ;(binding as unknown as { _yjsCleanup?: () => void })._yjsCleanup = () => {
+        yText.unobserve(observer)
+      }
+    })
+
+    return () => {
+      cancelled = true
+      const b = bindingRef.current as unknown as { _yjsCleanup?: () => void } | null
+      b?._yjsCleanup?.()
+      bindingRef.current?.destroy()
+      bindingRef.current = null
+    }
+  }, [yText, provider, setCode])
+
+  const handleMount: OnMount = useCallback(
+    (editor, monaco) => {
+      editorRef.current = editor
+
+      monaco.languages.register({ id: 'mermaid' })
+
+      monaco.languages.setMonarchTokensProvider('mermaid', {
+        keywords: MERMAID_KEYWORDS,
+        tokenizer: {
+          root: [
+            [/%%.*$/, 'comment'],
+            [/"[^"]*"/, 'string'],
+            [/'[^']*'/, 'string'],
+            [/-->|--o|--x|<-->|-.->|==>|-----|---/, 'operator'],
+            [/->>|-->>|-\)/, 'operator'],
+            [/<<|>>/, 'delimiter'],
+            [/[{}[\]()]/, 'delimiter'],
+            [/:::/, 'delimiter'],
+            [/\|/, 'delimiter'],
+            [/\b\d+\b/, 'number'],
+            [
+              /[a-zA-Z_]\w*/,
+              {
+                cases: {
+                  '@keywords': 'keyword',
+                  '@default': 'identifier',
+                },
               },
-            },
+            ],
           ],
+        },
+      })
+
+      monaco.languages.setLanguageConfiguration('mermaid', {
+        comments: { lineComment: '%%' },
+        brackets: [
+          ['{', '}'],
+          ['[', ']'],
+          ['(', ')'],
         ],
-      },
-    })
+        autoClosingPairs: [
+          { open: '{', close: '}' },
+          { open: '[', close: ']' },
+          { open: '(', close: ')' },
+          { open: '"', close: '"' },
+          { open: "'", close: "'" },
+        ],
+      })
 
-    monaco.languages.setLanguageConfiguration('mermaid', {
-      comments: { lineComment: '%%' },
-      brackets: [
-        ['{', '}'],
-        ['[', ']'],
-        ['(', ')'],
-      ],
-      autoClosingPairs: [
-        { open: '{', close: '}' },
-        { open: '[', close: ']' },
-        { open: '(', close: ')' },
-        { open: '"', close: '"' },
-        { open: "'", close: "'" },
-      ],
-    })
+      monaco.editor.defineTheme('uml-dark', THEME)
+      monaco.editor.setTheme('uml-dark')
 
-    monaco.editor.defineTheme('uml-dark', THEME)
-    monaco.editor.setTheme('uml-dark')
+      editor.updateOptions({
+        fontFamily: 'var(--font-geist-mono), "Cascadia Code", "Fira Code", monospace',
+        fontSize: 14,
+        lineHeight: 22,
+        padding: { top: 16, bottom: 16 },
+        minimap: { enabled: false },
+        scrollBeyondLastLine: false,
+        renderLineHighlight: 'line',
+        cursorBlinking: 'smooth',
+        cursorSmoothCaretAnimation: 'on',
+        smoothScrolling: true,
+        wordWrap: 'on',
+        tabSize: 4,
+        insertSpaces: true,
+        folding: true,
+        glyphMargin: false,
+        lineDecorationsWidth: 0,
+        lineNumbersMinChars: 3,
+        overviewRulerBorder: false,
+      })
 
-    editor.updateOptions({
-      fontFamily: 'var(--font-geist-mono), "Cascadia Code", "Fira Code", monospace',
-      fontSize: 14,
-      lineHeight: 22,
-      padding: { top: 16, bottom: 16 },
-      minimap: { enabled: false },
-      scrollBeyondLastLine: false,
-      renderLineHighlight: 'line',
-      cursorBlinking: 'smooth',
-      cursorSmoothCaretAnimation: 'on',
-      smoothScrolling: true,
-      wordWrap: 'on',
-      tabSize: 4,
-      insertSpaces: true,
-      folding: true,
-      glyphMargin: false,
-      lineDecorationsWidth: 0,
-      lineNumbersMinChars: 3,
-      overviewRulerBorder: false,
-    })
+      editor.focus()
 
-    editor.focus()
-  }, [])
+      // If yText is already available when the editor mounts, trigger binding
+      // by re-running the effect. We achieve this by calling the import directly.
+      if (yText) {
+        import('y-monaco').then(({ MonacoBinding }) => {
+          if (!editorRef.current) return
+          const model = editorRef.current.getModel()
+          if (!model) return
+          bindingRef.current?.destroy()
+          const binding = new MonacoBinding(
+            yText,
+            model,
+            new Set([editorRef.current]),
+            provider?.awareness ?? undefined,
+          )
+          bindingRef.current = binding
+
+          const observer = () => setCode(yText.toString())
+          yText.observe(observer)
+          ;(binding as unknown as { _yjsCleanup?: () => void })._yjsCleanup = () => {
+            yText.unobserve(observer)
+          }
+        })
+      }
+    },
+    [yText, provider, setCode],
+  )
 
   const handleChange = useCallback(
     (value: string | undefined) => {
-      if (value !== undefined) {
+      // In Yjs mode, changes are handled by MonacoBinding; the observer above
+      // propagates them to the store. In local-only mode, update store directly.
+      if (!yText && value !== undefined) {
         setCode(value)
       }
     },
-    [setCode],
+    [yText, setCode],
   )
 
   return (
     <div className="h-full w-full overflow-hidden">
       <Editor
         defaultLanguage="mermaid"
-        value={code}
+        // In Yjs mode, MonacoBinding manages the model content.
+        // We still provide value as the initial content for non-Yjs mode.
+        value={yText ? undefined : code}
+        defaultValue={yText ? code : undefined}
         onChange={handleChange}
         onMount={handleMount}
         theme="vs-dark"

@@ -2,13 +2,25 @@
 
 import Link from 'next/link'
 import { useState, useEffect, useRef, useCallback } from 'react'
+import type { WebsocketProvider } from 'y-websocket'
 import type { Diagram, DiagramNode, DiagramEdge } from '@/lib/types/diagram'
 import { useDiagramStore } from '@/lib/store/diagram-store'
 import { CodeEditor } from '@/components/code-editor/CodeEditor'
 import { MermaidPreview } from '@/components/code-editor/MermaidPreview'
 import { ExportMenu } from '@/components/editor/ExportMenu'
 import { Canvas } from '@/components/canvas/Canvas'
+import { CollaborationStatus } from '@/components/editor/CollaborationStatus'
 import { syncToCode, syncFromCode } from '@/lib/sync/sync-engine'
+import { createYjsProvider } from '@/lib/yjs/provider'
+import { initLocalAwareness } from '@/lib/yjs/awareness'
+import {
+  seedDocFromDiagram,
+  getSharedCode,
+  getSharedNodes,
+  getSharedEdges,
+} from '@/lib/yjs/document'
+import { syncNodesToYjs, syncEdgesToYjs } from '@/lib/yjs/react-flow-binding'
+import type * as Y from 'yjs'
 
 type EditorMode = 'code' | 'split' | 'visual'
 
@@ -20,6 +32,11 @@ export function DiagramEditor({ diagram }: Props) {
   const [mode, setMode] = useState<EditorMode>('split')
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const titleInputRef = useRef<HTMLInputElement>(null)
+
+  // Yjs state
+  const [yjsProvider, setYjsProvider] = useState<WebsocketProvider | null>(null)
+  const [yText, setYText] = useState<Y.Text | null>(null)
+  const yjsDestroyRef = useRef<(() => void) | null>(null)
 
   const initialize = useDiagramStore((s) => s.initialize)
   const title = useDiagramStore((s) => s.meta?.title ?? '')
@@ -39,10 +56,80 @@ export function DiagramEditor({ diagram }: Props) {
   // Track previous mode for sync on mode change
   const prevModeRef = useRef<EditorMode>(mode)
 
+  // -------------------------------------------------------------------------
+  // Initialise local store
+  // -------------------------------------------------------------------------
   useEffect(() => {
     initialize(diagram)
   }, [diagram, initialize])
 
+  // -------------------------------------------------------------------------
+  // Initialise Yjs provider (client-side only)
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    let destroyed = false
+
+    const { doc, provider, destroy } = createYjsProvider(diagram.meta.id)
+    yjsDestroyRef.current = destroy
+
+    // Seed the doc with initial data so the server persists a starting state
+    seedDocFromDiagram(
+      doc,
+      diagram.meta,
+      diagram.nodes,
+      diagram.edges,
+      diagram.code,
+    )
+
+    // Set up local awareness (username / colour)
+    initLocalAwareness(provider)
+
+    // Expose Y.Text to CodeEditor
+    const sharedCode = getSharedCode(doc)
+    if (!destroyed) {
+      setYText(sharedCode)
+      setYjsProvider(provider)
+    }
+
+    // When the Yjs doc syncs, propagate changes to Zustand store
+    const yNodes = getSharedNodes(doc)
+    const yEdges = getSharedEdges(doc)
+
+    const nodesObserver = () => {
+      const nodes: DiagramNode[] = []
+      yNodes.forEach((n) => nodes.push(n))
+      setStoreNodes(nodes)
+    }
+    const edgesObserver = () => {
+      const edges: DiagramEdge[] = []
+      yEdges.forEach((e) => edges.push(e))
+      setStoreEdges(edges)
+    }
+    const codeObserver = () => {
+      setCode(sharedCode.toString())
+    }
+
+    yNodes.observe(nodesObserver)
+    yEdges.observe(edgesObserver)
+    sharedCode.observe(codeObserver)
+
+    return () => {
+      destroyed = true
+      yNodes.unobserve(nodesObserver)
+      yEdges.unobserve(edgesObserver)
+      sharedCode.unobserve(codeObserver)
+      destroy()
+      yjsDestroyRef.current = null
+      setYjsProvider(null)
+      setYText(null)
+    }
+  // Only re-run when the diagram ID changes (different diagram loaded)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [diagram.meta.id])
+
+  // -------------------------------------------------------------------------
+  // Auto-save debounce
+  // -------------------------------------------------------------------------
   const saveDebounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
   const prevCodeRef = useRef(diagram.code)
 
@@ -51,22 +138,17 @@ export function DiagramEditor({ diagram }: Props) {
     if (code === prevCodeRef.current) return
     prevCodeRef.current = code
 
-    if (saveDebounceRef.current) {
-      clearTimeout(saveDebounceRef.current)
-    }
-
-    saveDebounceRef.current = setTimeout(() => {
-      save()
-    }, 1500)
+    if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current)
+    saveDebounceRef.current = setTimeout(() => save(), 1500)
 
     return () => {
-      if (saveDebounceRef.current) {
-        clearTimeout(saveDebounceRef.current)
-      }
+      if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current)
     }
   }, [code, save, isInitialized])
 
-  // Sync data when switching between modes
+  // -------------------------------------------------------------------------
+  // Mode-switch sync
+  // -------------------------------------------------------------------------
   useEffect(() => {
     if (!isInitialized) return
     const prev = prevModeRef.current
@@ -78,6 +160,13 @@ export function DiagramEditor({ diagram }: Props) {
       if (result.nodes.length > 0) {
         setStoreNodes(result.nodes)
         setStoreEdges(result.edges)
+
+        // Sync new nodes/edges into Yjs so collaborators see them
+        if (yjsProvider) {
+          const doc = yjsProvider.doc
+          syncNodesToYjs(result.nodes, getSharedNodes(doc))
+          syncEdgesToYjs(result.edges, getSharedEdges(doc))
+        }
       }
     }
 
@@ -86,11 +175,21 @@ export function DiagramEditor({ diagram }: Props) {
       if (storeNodes.length > 0) {
         const mermaidCode = syncToCode(storeNodes, storeEdges, diagramType)
         setCode(mermaidCode)
+        // Update shared code in Yjs
+        if (yjsProvider && yText) {
+          const currentText = yText.toString()
+          if (currentText !== mermaidCode) {
+            yText.delete(0, yText.length)
+            yText.insert(0, mermaidCode)
+          }
+        }
       }
     }
-  }, [mode, isInitialized, code, diagramType, storeNodes, storeEdges, setStoreNodes, setStoreEdges, setCode])
+  }, [mode, isInitialized, code, diagramType, storeNodes, storeEdges, setStoreNodes, setStoreEdges, setCode, yjsProvider, yText])
 
-  // When canvas nodes/edges change in visual mode, sync to code
+  // -------------------------------------------------------------------------
+  // Canvas change handlers
+  // -------------------------------------------------------------------------
   const handleCanvasNodesChange = useCallback(
     (nodes: DiagramNode[]) => {
       setStoreNodes(nodes)
@@ -98,9 +197,20 @@ export function DiagramEditor({ diagram }: Props) {
         const edges = useDiagramStore.getState().edges
         const mermaidCode = syncToCode(nodes, edges, diagramType)
         setCode(mermaidCode)
+
+        // Write to Yjs
+        if (yjsProvider) {
+          const doc = yjsProvider.doc
+          syncNodesToYjs(nodes, getSharedNodes(doc))
+          const sharedCode = getSharedCode(doc)
+          if (sharedCode.toString() !== mermaidCode) {
+            sharedCode.delete(0, sharedCode.length)
+            sharedCode.insert(0, mermaidCode)
+          }
+        }
       }
     },
-    [mode, diagramType, setStoreNodes, setCode],
+    [mode, diagramType, setStoreNodes, setCode, yjsProvider],
   )
 
   const handleCanvasEdgesChange = useCallback(
@@ -110,11 +220,25 @@ export function DiagramEditor({ diagram }: Props) {
         const nodes = useDiagramStore.getState().nodes
         const mermaidCode = syncToCode(nodes, edges, diagramType)
         setCode(mermaidCode)
+
+        // Write to Yjs
+        if (yjsProvider) {
+          const doc = yjsProvider.doc
+          syncEdgesToYjs(edges, getSharedEdges(doc))
+          const sharedCode = getSharedCode(doc)
+          if (sharedCode.toString() !== mermaidCode) {
+            sharedCode.delete(0, sharedCode.length)
+            sharedCode.insert(0, mermaidCode)
+          }
+        }
       }
     },
-    [mode, diagramType, setStoreEdges, setCode],
+    [mode, diagramType, setStoreEdges, setCode, yjsProvider],
   )
 
+  // -------------------------------------------------------------------------
+  // Title editing
+  // -------------------------------------------------------------------------
   const handleTitleClick = useCallback(() => {
     setIsEditingTitle(true)
     setTimeout(() => titleInputRef.current?.select(), 0)
@@ -131,9 +255,7 @@ export function DiagramEditor({ diagram }: Props) {
         setIsEditingTitle(false)
         save()
       }
-      if (e.key === 'Escape') {
-        setIsEditingTitle(false)
-      }
+      if (e.key === 'Escape') setIsEditingTitle(false)
     },
     [save],
   )
@@ -206,6 +328,9 @@ export function DiagramEditor({ diagram }: Props) {
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Collaboration status – connection + remote user avatars */}
+          <CollaborationStatus provider={yjsProvider} />
+
           <ExportMenu />
 
           <div className="flex gap-0.5 bg-surface rounded-lg p-0.5 border border-border/50">
@@ -229,7 +354,7 @@ export function DiagramEditor({ diagram }: Props) {
       <div className="flex-1 flex overflow-hidden">
         {(mode === 'code' || mode === 'split') && (
           <div className={`flex flex-col ${mode === 'split' ? 'w-1/2 border-r border-border' : 'w-full'}`}>
-            <CodeEditor />
+            <CodeEditor yText={yText} provider={yjsProvider} />
           </div>
         )}
 
