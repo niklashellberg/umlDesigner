@@ -2,11 +2,13 @@
 
 import Link from 'next/link'
 import { useState, useEffect, useRef, useCallback } from 'react'
-import type { Diagram } from '@/lib/types/diagram'
+import type { Diagram, DiagramNode, DiagramEdge } from '@/lib/types/diagram'
 import { useDiagramStore } from '@/lib/store/diagram-store'
 import { CodeEditor } from '@/components/code-editor/CodeEditor'
 import { MermaidPreview } from '@/components/code-editor/MermaidPreview'
 import { ExportMenu } from '@/components/editor/ExportMenu'
+import { Canvas } from '@/components/canvas/Canvas'
+import { syncToCode, syncFromCode } from '@/lib/sync/sync-engine'
 
 type EditorMode = 'code' | 'split' | 'visual'
 
@@ -21,12 +23,21 @@ export function DiagramEditor({ diagram }: Props) {
 
   const initialize = useDiagramStore((s) => s.initialize)
   const title = useDiagramStore((s) => s.meta?.title ?? '')
+  const diagramType = useDiagramStore((s) => s.meta?.type ?? 'class')
   const setTitle = useDiagramStore((s) => s.setTitle)
   const code = useDiagramStore((s) => s.code)
+  const setCode = useDiagramStore((s) => s.setCode)
+  const storeNodes = useDiagramStore((s) => s.nodes)
+  const storeEdges = useDiagramStore((s) => s.edges)
+  const setStoreNodes = useDiagramStore((s) => s.setNodes)
+  const setStoreEdges = useDiagramStore((s) => s.setEdges)
   const save = useDiagramStore((s) => s.save)
   const isSaving = useDiagramStore((s) => s.isSaving)
   const lastSavedAt = useDiagramStore((s) => s.lastSavedAt)
   const isInitialized = useDiagramStore((s) => s.isInitialized)
+
+  // Track previous mode for sync on mode change
+  const prevModeRef = useRef<EditorMode>(mode)
 
   useEffect(() => {
     initialize(diagram)
@@ -54,6 +65,55 @@ export function DiagramEditor({ diagram }: Props) {
       }
     }
   }, [code, save, isInitialized])
+
+  // Sync data when switching between modes
+  useEffect(() => {
+    if (!isInitialized) return
+    const prev = prevModeRef.current
+    prevModeRef.current = mode
+
+    // Switching FROM code mode TO visual/split: parse code into nodes/edges
+    if (prev === 'code' && (mode === 'visual' || mode === 'split')) {
+      const result = syncFromCode(code, diagramType)
+      if (result.nodes.length > 0) {
+        setStoreNodes(result.nodes)
+        setStoreEdges(result.edges)
+      }
+    }
+
+    // Switching FROM visual TO code/split: sync nodes/edges to code
+    if (prev === 'visual' && (mode === 'code' || mode === 'split')) {
+      if (storeNodes.length > 0) {
+        const mermaidCode = syncToCode(storeNodes, storeEdges, diagramType)
+        setCode(mermaidCode)
+      }
+    }
+  }, [mode, isInitialized, code, diagramType, storeNodes, storeEdges, setStoreNodes, setStoreEdges, setCode])
+
+  // When canvas nodes/edges change in visual mode, sync to code
+  const handleCanvasNodesChange = useCallback(
+    (nodes: DiagramNode[]) => {
+      setStoreNodes(nodes)
+      if (mode === 'visual' || mode === 'split') {
+        const edges = useDiagramStore.getState().edges
+        const mermaidCode = syncToCode(nodes, edges, diagramType)
+        setCode(mermaidCode)
+      }
+    },
+    [mode, diagramType, setStoreNodes, setCode],
+  )
+
+  const handleCanvasEdgesChange = useCallback(
+    (edges: DiagramEdge[]) => {
+      setStoreEdges(edges)
+      if (mode === 'visual' || mode === 'split') {
+        const nodes = useDiagramStore.getState().nodes
+        const mermaidCode = syncToCode(nodes, edges, diagramType)
+        setCode(mermaidCode)
+      }
+    },
+    [mode, diagramType, setStoreEdges, setCode],
+  )
 
   const handleTitleClick = useCallback(() => {
     setIsEditingTitle(true)
@@ -175,7 +235,12 @@ export function DiagramEditor({ diagram }: Props) {
 
         {mode === 'split' && (
           <div className="flex flex-col w-1/2">
-            <MermaidPreview />
+            <Canvas
+              initialNodes={storeNodes}
+              initialEdges={storeEdges}
+              onNodesChange={handleCanvasNodesChange}
+              onEdgesChange={handleCanvasEdgesChange}
+            />
           </div>
         )}
 
@@ -186,21 +251,13 @@ export function DiagramEditor({ diagram }: Props) {
         )}
 
         {mode === 'visual' && (
-          <div className="flex-1 flex flex-col">
-            <div className="flex-1 flex items-center justify-center text-muted">
-              <div className="text-center">
-                <div className="mb-3 mx-auto w-12 h-12 rounded-xl bg-surface border border-border flex items-center justify-center">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-muted">
-                    <rect x="3" y="3" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-                    <rect x="14" y="3" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-                    <rect x="3" y="14" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-                    <rect x="14" y="14" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-                  </svg>
-                </div>
-                <p className="text-sm font-medium mb-1">Visual Editor</p>
-                <p className="text-xs text-muted">Drag-and-drop canvas coming in Phase 3</p>
-              </div>
-            </div>
+          <div className="flex-1">
+            <Canvas
+              initialNodes={storeNodes}
+              initialEdges={storeEdges}
+              onNodesChange={handleCanvasNodesChange}
+              onEdgesChange={handleCanvasEdgesChange}
+            />
           </div>
         )}
       </div>

@@ -1,4 +1,5 @@
 export interface ClassNodeData {
+  [key: string]: unknown
   label: string
   stereotype?: string
   fields: string[]
@@ -6,19 +7,23 @@ export interface ClassNodeData {
 }
 
 export interface InterfaceNodeData {
+  [key: string]: unknown
   label: string
   methods: string[]
 }
 
 export interface ActorNodeData {
+  [key: string]: unknown
   label: string
 }
 
 export interface LifelineNodeData {
+  [key: string]: unknown
   label: string
 }
 
 export interface ProcessNodeData {
+  [key: string]: unknown
   label: string
   shape: 'rectangle' | 'rounded' | 'diamond' | 'circle'
 }
@@ -33,6 +38,7 @@ export type UmlEdgeType =
   | 'sequence-message'
 
 export interface UmlEdgeData {
+  [key: string]: unknown
   edgeType: UmlEdgeType
   cardinality?: { source: string; target: string }
   lineStyle: 'solid' | 'dashed'
