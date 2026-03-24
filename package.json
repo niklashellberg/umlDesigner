@@ -1,12 +1,17 @@
 {
-  "name": "uml-designer-init",
+  "name": "uml-designer",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --turbopack",
+    "dev:ws": "tsx watch server/ws-server.ts",
+    "dev:all": "concurrently \"pnpm dev\" \"pnpm dev:ws\"",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "type-check": "tsc -b",
+    "test": "vitest",
+    "test:run": "vitest --run"
   },
   "dependencies": {
     "next": "16.2.1",
