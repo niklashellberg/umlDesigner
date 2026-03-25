@@ -396,10 +396,10 @@ export function DiagramEditor({ diagram }: Props) {
         {mode === 'split' && (
           <div className="flex flex-col w-1/2">
             <Canvas
-              initialNodes={storeNodes}
-              initialEdges={storeEdges}
-              onNodesChange={handleCanvasNodesChange}
-              onEdgesChange={handleCanvasEdgesChange}
+              nodes={storeNodes}
+              edges={storeEdges}
+              onNodesUpdate={handleCanvasNodesChange}
+              onEdgesUpdate={handleCanvasEdgesChange}
             />
           </div>
         )}
@@ -413,10 +413,10 @@ export function DiagramEditor({ diagram }: Props) {
         {mode === 'visual' && (
           <div className="flex-1">
             <Canvas
-              initialNodes={storeNodes}
-              initialEdges={storeEdges}
-              onNodesChange={handleCanvasNodesChange}
-              onEdgesChange={handleCanvasEdgesChange}
+              nodes={storeNodes}
+              edges={storeEdges}
+              onNodesUpdate={handleCanvasNodesChange}
+              onEdgesUpdate={handleCanvasEdgesChange}
             />
           </div>
         )}

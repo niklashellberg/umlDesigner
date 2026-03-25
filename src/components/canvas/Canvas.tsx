@@ -4,7 +4,6 @@ import {
   useCallback,
   useRef,
   type DragEvent,
-  useEffect,
 } from 'react'
 import {
   ReactFlow,
@@ -12,11 +11,13 @@ import {
   Background,
   Controls,
   MiniMap,
-  useNodesState,
-  useEdgesState,
+  applyNodeChanges,
+  applyEdgeChanges,
   addEdge,
   useReactFlow,
   type OnConnect,
+  type OnNodesChange,
+  type OnEdgesChange,
   type Node,
   type Edge,
   BackgroundVariant,
@@ -30,9 +31,6 @@ import { PropertyPanel } from './panels/PropertyPanel'
 import type { DiagramNode, DiagramEdge } from '@/lib/types/diagram'
 import type { UmlEdgeData } from '@/lib/types/uml'
 
-/**
- * Generates a unique ID for new nodes.
- */
 let nodeIdCounter = 0
 function getNodeId(): string {
   nodeIdCounter += 1
@@ -40,65 +38,43 @@ function getNodeId(): string {
 }
 
 interface CanvasInnerProps {
-  initialNodes: DiagramNode[]
-  initialEdges: DiagramEdge[]
-  onNodesChange: (nodes: DiagramNode[]) => void
-  onEdgesChange: (edges: DiagramEdge[]) => void
+  nodes: DiagramNode[]
+  edges: DiagramEdge[]
+  onNodesUpdate: (nodes: DiagramNode[]) => void
+  onEdgesUpdate: (edges: DiagramEdge[]) => void
 }
 
 function CanvasInner({
-  initialNodes,
-  initialEdges,
-  onNodesChange,
-  onEdgesChange,
+  nodes,
+  edges,
+  onNodesUpdate,
+  onEdgesUpdate,
 }: CanvasInnerProps) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const { screenToFlowPosition } = useReactFlow()
 
-  const [nodes, setNodes, handleNodesChange] = useNodesState(
-    initialNodes as Node[],
+  const rfNodes = nodes as Node[]
+  const rfEdges = edges as Edge[]
+
+  const handleNodesChange: OnNodesChange = useCallback(
+    (changes) => {
+      const updated = applyNodeChanges(changes, rfNodes)
+      onNodesUpdate(updated as unknown as DiagramNode[])
+    },
+    [rfNodes, onNodesUpdate],
   )
-  const [edges, setEdges, handleEdgesChange] = useEdgesState(
-    initialEdges as Edge[],
+
+  const handleEdgesChange: OnEdgesChange = useCallback(
+    (changes) => {
+      const updated = applyEdgeChanges(changes, rfEdges)
+      onEdgesUpdate(updated as unknown as DiagramEdge[])
+    },
+    [rfEdges, onEdgesUpdate],
   )
 
-  // Sync initial data when props change (e.g., switching from code mode)
-  const initialNodesRef = useRef(initialNodes)
-  const initialEdgesRef = useRef(initialEdges)
-
-  useEffect(() => {
-    if (initialNodes !== initialNodesRef.current) {
-      initialNodesRef.current = initialNodes
-      setNodes(initialNodes as Node[])
-    }
-  }, [initialNodes, setNodes])
-
-  useEffect(() => {
-    if (initialEdges !== initialEdgesRef.current) {
-      initialEdgesRef.current = initialEdges
-      setEdges(initialEdges as Edge[])
-    }
-  }, [initialEdges, setEdges])
-
-  // Propagate changes back to parent
-  const nodesRef = useRef(nodes)
-  useEffect(() => {
-    if (nodes !== nodesRef.current) {
-      nodesRef.current = nodes
-      onNodesChange(nodes as unknown as DiagramNode[])
-    }
-  }, [nodes, onNodesChange])
-
-  const edgesRef = useRef(edges)
-  useEffect(() => {
-    if (edges !== edgesRef.current) {
-      edgesRef.current = edges
-      onEdgesChange(edges as unknown as DiagramEdge[])
-    }
-  }, [edges, onEdgesChange])
-
-  // Selected node for property panel
-  const selectedNode = nodes.find((n) => n.selected) as DiagramNode | undefined
+  const selectedNode = nodes.find(
+    (n) => (n as unknown as { selected?: boolean }).selected,
+  ) ?? null
 
   const onConnect: OnConnect = useCallback(
     (params) => {
@@ -106,14 +82,13 @@ function CanvasInner({
         edgeType: 'association',
         lineStyle: 'solid',
       }
-      setEdges((eds) =>
-        addEdge(
-          { ...params, type: 'uml', data: defaultData },
-          eds,
-        ),
+      const updated = addEdge(
+        { ...params, type: 'uml', data: defaultData },
+        rfEdges,
       )
+      onEdgesUpdate(updated as unknown as DiagramEdge[])
     },
-    [setEdges],
+    [rfEdges, onEdgesUpdate],
   )
 
   const onDragOver = useCallback((event: DragEvent) => {
@@ -147,21 +122,22 @@ function CanvasInner({
         data: parsed.data,
       }
 
-      setNodes((nds) => [...nds, newNode])
+      onNodesUpdate([...rfNodes, newNode] as unknown as DiagramNode[])
     },
-    [screenToFlowPosition, setNodes],
+    [screenToFlowPosition, rfNodes, onNodesUpdate],
   )
 
   const handleDeselectNode = useCallback(() => {
-    setNodes((nds) => nds.map((n) => ({ ...n, selected: false })))
-  }, [setNodes])
+    const updated = rfNodes.map((n) => ({ ...n, selected: false }))
+    onNodesUpdate(updated as unknown as DiagramNode[])
+  }, [rfNodes, onNodesUpdate])
 
   return (
     <div ref={reactFlowWrapper} className="w-full h-full relative">
       <UmlEdgeMarkerDefs />
       <ReactFlow
-        nodes={nodes}
-        edges={edges}
+        nodes={rfNodes}
+        edges={rfEdges}
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onConnect={onConnect}
@@ -191,7 +167,7 @@ function CanvasInner({
       </ReactFlow>
       <ToolPanel />
       <PropertyPanel
-        selectedNode={selectedNode ?? null}
+        selectedNode={selectedNode as DiagramNode | null}
         onClose={handleDeselectNode}
       />
     </div>
@@ -199,29 +175,25 @@ function CanvasInner({
 }
 
 interface CanvasProps {
-  initialNodes: DiagramNode[]
-  initialEdges: DiagramEdge[]
-  onNodesChange: (nodes: DiagramNode[]) => void
-  onEdgesChange: (edges: DiagramEdge[]) => void
+  nodes: DiagramNode[]
+  edges: DiagramEdge[]
+  onNodesUpdate: (nodes: DiagramNode[]) => void
+  onEdgesUpdate: (edges: DiagramEdge[]) => void
 }
 
-/**
- * Canvas component wraps the inner flow in a ReactFlowProvider.
- * This is required by React Flow to use hooks like useReactFlow.
- */
 export function Canvas({
-  initialNodes,
-  initialEdges,
-  onNodesChange,
-  onEdgesChange,
+  nodes,
+  edges,
+  onNodesUpdate,
+  onEdgesUpdate,
 }: CanvasProps) {
   return (
     <ReactFlowProvider>
       <CanvasInner
-        initialNodes={initialNodes}
-        initialEdges={initialEdges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
+        nodes={nodes}
+        edges={edges}
+        onNodesUpdate={onNodesUpdate}
+        onEdgesUpdate={onEdgesUpdate}
       />
     </ReactFlowProvider>
   )
