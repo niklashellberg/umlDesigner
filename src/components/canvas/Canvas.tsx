@@ -120,6 +120,7 @@ function CanvasInner({
         type: parsed.type,
         position,
         data: parsed.data,
+        ...(parsed.type === 'swimlane' ? { zIndex: -1, dragHandle: '.swimlane-header' } : {}),
       }
 
       onNodesUpdate([...rfNodes, newNode] as unknown as DiagramNode[])

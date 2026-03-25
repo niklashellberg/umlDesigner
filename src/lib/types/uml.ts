@@ -28,6 +28,30 @@ export interface ProcessNodeData {
   shape: 'rectangle' | 'rounded' | 'diamond' | 'circle'
 }
 
+export interface ActivityNodeData {
+  [key: string]: unknown
+  label: string
+}
+
+export interface SwimlaneNodeData {
+  [key: string]: unknown
+  label: string
+  width: number
+  height: number
+}
+
+export interface StartNodeData {
+  [key: string]: unknown
+}
+
+export interface EndNodeData {
+  [key: string]: unknown
+}
+
+export interface ForkJoinNodeData {
+  [key: string]: unknown
+}
+
 export type UmlEdgeType =
   | 'association'
   | 'inheritance'

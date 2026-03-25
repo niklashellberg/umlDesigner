@@ -61,6 +61,7 @@ export function createEmptyDiagram(title: string, type: DiagramType): Diagram {
     class: `classDiagram\n    class ${title.replace(/\s+/g, '')} {\n    }\n`,
     sequence: `sequenceDiagram\n    participant A\n    participant B\n    A->>B: Message\n`,
     flowchart: `flowchart TD\n    A[Start] --> B[Process]\n    B --> C[End]\n`,
+    activity: `flowchart TD\n  subgraph Lane1["Actor 1"]\n    Start1((start)) --> A1(Activity 1)\n    A1 --> A2(Activity 2)\n  end\n  subgraph Lane2["Actor 2"]\n    A2 --> B1(Activity 3)\n    B1 --> End1((end))\n  end\n`,
   }
 
   return {

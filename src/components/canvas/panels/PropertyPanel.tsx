@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from 'react'
 import { useReactFlow } from '@xyflow/react'
-import type { ClassNodeData, InterfaceNodeData, ProcessNodeData } from '@/lib/types/uml'
+import type { ClassNodeData, InterfaceNodeData, ProcessNodeData, ActivityNodeData, SwimlaneNodeData } from '@/lib/types/uml'
 import type { DiagramNode } from '@/lib/types/diagram'
 
 interface Props {
@@ -38,6 +38,12 @@ export function PropertyPanel({ selectedNode, onClose }: Props) {
         )}
         {selectedNode.type === 'process' && (
           <ProcessProperties node={selectedNode} />
+        )}
+        {selectedNode.type === 'activity' && (
+          <ActivityProperties node={selectedNode} />
+        )}
+        {selectedNode.type === 'swimlane' && (
+          <SwimlaneProperties node={selectedNode} />
         )}
       </div>
     </div>
@@ -164,6 +170,68 @@ function ProcessProperties({ node }: { node: DiagramNode }) {
           ))}
         </div>
       </div>
+    </div>
+  )
+}
+
+function ActivityProperties({ node }: { node: DiagramNode }) {
+  const { setNodes } = useReactFlow()
+  const data = node.data as unknown as ActivityNodeData
+
+  const update = useCallback(
+    (partial: Partial<ActivityNodeData>) => {
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.id === node.id ? { ...n, data: { ...n.data, ...partial } } : n,
+        ),
+      )
+    },
+    [node.id, setNodes],
+  )
+
+  return (
+    <div className="flex flex-col gap-3">
+      <FieldInput
+        label="Label"
+        value={data.label}
+        onChange={(v) => update({ label: v })}
+      />
+    </div>
+  )
+}
+
+function SwimlaneProperties({ node }: { node: DiagramNode }) {
+  const { setNodes } = useReactFlow()
+  const data = node.data as unknown as SwimlaneNodeData
+
+  const update = useCallback(
+    (partial: Partial<SwimlaneNodeData>) => {
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.id === node.id ? { ...n, data: { ...n.data, ...partial } } : n,
+        ),
+      )
+    },
+    [node.id, setNodes],
+  )
+
+  return (
+    <div className="flex flex-col gap-3">
+      <FieldInput
+        label="Lane Name"
+        value={data.label}
+        onChange={(v) => update({ label: v })}
+      />
+      <FieldInput
+        label="Width"
+        value={String(data.width || 250)}
+        onChange={(v) => update({ width: parseInt(v, 10) || 250 })}
+      />
+      <FieldInput
+        label="Height"
+        value={String(data.height || 500)}
+        onChange={(v) => update({ height: parseInt(v, 10) || 500 })}
+      />
     </div>
   )
 }

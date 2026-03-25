@@ -31,7 +31,7 @@ export function CreateDiagramButton() {
 
   return (
     <div className="flex gap-2">
-      {(['class', 'sequence', 'flowchart'] as DiagramType[]).map((type) => (
+      {(['class', 'sequence', 'flowchart', 'activity'] as DiagramType[]).map((type) => (
         <button
           key={type}
           onClick={() => handleCreate(type)}

@@ -1,5 +1,5 @@
 import type { DiagramNode, DiagramEdge, DiagramType } from '@/lib/types/diagram'
-import type { ClassNodeData, InterfaceNodeData, ProcessNodeData, UmlEdgeData } from '@/lib/types/uml'
+import type { ClassNodeData, InterfaceNodeData, ProcessNodeData, ActivityNodeData, SwimlaneNodeData, UmlEdgeData } from '@/lib/types/uml'
 
 /**
  * Converts React Flow nodes and edges into Mermaid diagram syntax.
@@ -15,6 +15,8 @@ export function flowToMermaid(
       return classToMermaid(nodes, edges)
     case 'flowchart':
       return flowchartToMermaid(nodes, edges)
+    case 'activity':
+      return activityToMermaid(nodes, edges)
     default:
       return ''
   }
@@ -135,6 +137,105 @@ function flowchartToMermaid(nodes: DiagramNode[], edges: DiagramEdge[]): string 
   }
 
   return lines.join('\n')
+}
+
+function activityToMermaid(nodes: DiagramNode[], edges: DiagramEdge[]): string {
+  const lines: string[] = ['flowchart TD']
+
+  // Separate swimlanes from other nodes
+  const swimlanes = nodes.filter((n) => n.type === 'swimlane')
+  const otherNodes = nodes.filter((n) => n.type !== 'swimlane')
+
+  // Determine which swimlane each node belongs to by checking position bounds
+  function findSwimlane(node: DiagramNode): DiagramNode | null {
+    for (const lane of swimlanes) {
+      const laneData = lane.data as unknown as SwimlaneNodeData
+      const laneW = laneData.width || 250
+      const laneH = laneData.height || 500
+      const lx = lane.position.x
+      const ly = lane.position.y
+      const nx = node.position.x
+      const ny = node.position.y
+
+      if (nx >= lx && nx <= lx + laneW && ny >= ly && ny <= ly + laneH) {
+        return lane
+      }
+    }
+    return null
+  }
+
+  // Group nodes by swimlane
+  const laneGroups = new Map<string, DiagramNode[]>()
+  const ungrouped: DiagramNode[] = []
+
+  for (const node of otherNodes) {
+    const lane = findSwimlane(node)
+    if (lane) {
+      const laneData = lane.data as unknown as SwimlaneNodeData
+      const key = sanitizeId(laneData.label || lane.id)
+      if (!laneGroups.has(key)) {
+        laneGroups.set(key, [])
+      }
+      laneGroups.get(key)!.push(node)
+    } else {
+      ungrouped.push(node)
+    }
+  }
+
+  // Emit subgraphs for each swimlane
+  for (const lane of swimlanes) {
+    const laneData = lane.data as unknown as SwimlaneNodeData
+    const key = sanitizeId(laneData.label || lane.id)
+    const label = laneData.label || 'Lane'
+    const groupNodes = laneGroups.get(key) || []
+
+    lines.push(`  subgraph ${key}["${label}"]`)
+    for (const node of groupNodes) {
+      lines.push(`    ${activityNodeToMermaid(node)}`)
+    }
+    lines.push('  end')
+  }
+
+  // Emit ungrouped nodes
+  for (const node of ungrouped) {
+    lines.push(`  ${activityNodeToMermaid(node)}`)
+  }
+
+  // Emit edges
+  for (const edge of edges) {
+    const sourceId = sanitizeId(edge.source)
+    const targetId = sanitizeId(edge.target)
+    const labelStr = edge.label ? `|${edge.label}|` : ''
+    lines.push(`  ${sourceId} -->${labelStr} ${targetId}`)
+  }
+
+  return lines.join('\n')
+}
+
+function activityNodeToMermaid(node: DiagramNode): string {
+  const id = sanitizeId(node.id)
+
+  switch (node.type) {
+    case 'start':
+      return `${id}((start))`
+    case 'end':
+      return `${id}((end))`
+    case 'activity': {
+      const data = node.data as unknown as ActivityNodeData
+      return `${id}(${data.label || 'Activity'})`
+    }
+    case 'process': {
+      const data = node.data as unknown as ProcessNodeData
+      if (data.shape === 'diamond') {
+        return `${id}{${data.label}}`
+      }
+      return `${id}[${data.label}]`
+    }
+    case 'forkJoin':
+      return `${id}[" "]`
+    default:
+      return `${id}[${node.type}]`
+  }
 }
 
 function sanitizeId(id: string): string {

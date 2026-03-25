@@ -34,6 +34,13 @@ const diagramTypes: DiagramTypeCard[] = [
     icon: '\u25C7',
     example: 'Business logic, user journeys',
   },
+  {
+    type: 'activity',
+    label: 'Activity Diagram',
+    description: 'Model workflows with swimlanes, forks, and parallel activities.',
+    icon: '\u2261',
+    example: 'Swimlanes, concurrent processes',
+  },
 ]
 
 export function EmptyState() {
@@ -66,7 +73,7 @@ export function EmptyState() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full max-w-2xl">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 w-full max-w-3xl">
         {diagramTypes.map(({ type, label, description, icon, example }) => (
           <button
             key={type}

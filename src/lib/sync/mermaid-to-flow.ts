@@ -1,5 +1,5 @@
 import type { DiagramNode, DiagramEdge, DiagramType } from '@/lib/types/diagram'
-import type { ClassNodeData, ProcessNodeData, UmlEdgeType } from '@/lib/types/uml'
+import type { ClassNodeData, ProcessNodeData, ActivityNodeData, SwimlaneNodeData, UmlEdgeType } from '@/lib/types/uml'
 
 /**
  * Parses Mermaid diagram code into React Flow nodes and edges.
@@ -13,6 +13,10 @@ export function mermaidToFlow(
 
   if (diagramType === 'class' || trimmed.startsWith('classDiagram')) {
     return parseClassDiagram(trimmed)
+  }
+
+  if (diagramType === 'activity') {
+    return parseActivity(trimmed)
   }
 
   if (diagramType === 'flowchart' || trimmed.startsWith('flowchart')) {
@@ -253,4 +257,246 @@ function setFlowNode(
     position: { x: 0, y: 0 },
     data: data as unknown as Record<string, unknown>,
   })
+}
+
+// ---------- Activity Diagram Parsing ----------
+
+interface SubgraphDef {
+  id: string
+  label: string
+  nodeIds: string[]
+}
+
+function parseActivity(code: string): { nodes: DiagramNode[]; edges: DiagramEdge[] } {
+  const lines = code.split('\n').map((l) => l.trim()).filter(Boolean)
+  const nodes = new Map<string, DiagramNode>()
+  const edges: DiagramEdge[] = []
+  const subgraphs: SubgraphDef[] = []
+  let currentSubgraph: SubgraphDef | null = null
+
+  for (const line of lines) {
+    // Skip header
+    if (line.startsWith('flowchart') || line.startsWith('graph')) continue
+
+    // Subgraph start: subgraph ID["Label"] or subgraph ID
+    const subMatch = line.match(/^subgraph\s+(\w+)(?:\["([^"]+)"\])?$/)
+    if (subMatch) {
+      const [, id, label] = subMatch
+      currentSubgraph = { id, label: label || id, nodeIds: [] }
+      subgraphs.push(currentSubgraph)
+      continue
+    }
+
+    // Subgraph end
+    if (line === 'end') {
+      currentSubgraph = null
+      continue
+    }
+
+    // Edge with optional label: A -->|label| B or A --> B
+    const edgeMatch = line.match(
+      /^(\w+)\s+-->(?:\|([^|]*)\|)?\s+(\w+)$/,
+    )
+    if (edgeMatch) {
+      const [, source, label, target] = edgeMatch
+      ensureActivityNode(nodes, source)
+      ensureActivityNode(nodes, target)
+      if (currentSubgraph) {
+        if (!currentSubgraph.nodeIds.includes(source)) currentSubgraph.nodeIds.push(source)
+        if (!currentSubgraph.nodeIds.includes(target)) currentSubgraph.nodeIds.push(target)
+      }
+      edges.push({
+        id: `e-${source}-${target}`,
+        type: 'uml',
+        source,
+        target,
+        label: label || undefined,
+        data: {
+          edgeType: 'association' as UmlEdgeType,
+          lineStyle: 'solid' as const,
+        },
+      })
+      continue
+    }
+
+    // Node definitions - check for activity-specific types
+
+    // Circle node (start/end): A((label))
+    const circleMatch = line.match(/^(\w+)\(\(([^)]+)\)\)$/)
+    if (circleMatch) {
+      const [, id, label] = circleMatch
+      const isStart = label.toLowerCase().includes('start') || label === '\u25CF'
+      const isEnd = label.toLowerCase().includes('end') || label === '\u25C9'
+      if (isStart) {
+        nodes.set(id, {
+          id,
+          type: 'start',
+          position: { x: 0, y: 0 },
+          data: {},
+        })
+      } else if (isEnd) {
+        nodes.set(id, {
+          id,
+          type: 'end',
+          position: { x: 0, y: 0 },
+          data: {},
+        })
+      } else {
+        // Treat as a regular activity with rounded shape
+        const data: ActivityNodeData = { label }
+        nodes.set(id, {
+          id,
+          type: 'activity',
+          position: { x: 0, y: 0 },
+          data: data as unknown as Record<string, unknown>,
+        })
+      }
+      if (currentSubgraph && !currentSubgraph.nodeIds.includes(id)) {
+        currentSubgraph.nodeIds.push(id)
+      }
+      continue
+    }
+
+    // Diamond: A{label}
+    const diamondMatch = line.match(/^(\w+)\{([^}]+)\}$/)
+    if (diamondMatch) {
+      const [, id, label] = diamondMatch
+      const data: ProcessNodeData = { label, shape: 'diamond' }
+      nodes.set(id, {
+        id,
+        type: 'process',
+        position: { x: 0, y: 0 },
+        data: data as unknown as Record<string, unknown>,
+      })
+      if (currentSubgraph && !currentSubgraph.nodeIds.includes(id)) {
+        currentSubgraph.nodeIds.push(id)
+      }
+      continue
+    }
+
+    // Rounded rect (activity): A(label)
+    const roundedMatch = line.match(/^(\w+)\(([^)]+)\)$/)
+    if (roundedMatch) {
+      const [, id, label] = roundedMatch
+      const data: ActivityNodeData = { label }
+      nodes.set(id, {
+        id,
+        type: 'activity',
+        position: { x: 0, y: 0 },
+        data: data as unknown as Record<string, unknown>,
+      })
+      if (currentSubgraph && !currentSubgraph.nodeIds.includes(id)) {
+        currentSubgraph.nodeIds.push(id)
+      }
+      continue
+    }
+
+    // Rectangle: A[label] - for fork/join or plain
+    const rectMatch = line.match(/^(\w+)\[([^\]]*)\]$/)
+    if (rectMatch) {
+      const [, id, label] = rectMatch
+      if (label.trim() === '' || label.trim() === ' ') {
+        // Empty label = fork/join bar
+        nodes.set(id, {
+          id,
+          type: 'forkJoin',
+          position: { x: 0, y: 0 },
+          data: {},
+        })
+      } else {
+        const data: ActivityNodeData = { label }
+        nodes.set(id, {
+          id,
+          type: 'activity',
+          position: { x: 0, y: 0 },
+          data: data as unknown as Record<string, unknown>,
+        })
+      }
+      if (currentSubgraph && !currentSubgraph.nodeIds.includes(id)) {
+        currentSubgraph.nodeIds.push(id)
+      }
+      continue
+    }
+  }
+
+  // Create swimlane nodes from subgraphs and lay out nodes within them
+  const LANE_WIDTH = 250
+  const LANE_PADDING_TOP = 50
+  const LANE_SPACING = 30
+  const NODE_SPACING_Y = 80
+
+  const allNodes: DiagramNode[] = []
+
+  // Track which nodes are placed in swimlanes
+  const placedNodeIds = new Set<string>()
+
+  subgraphs.forEach((sg, laneIdx) => {
+    const laneX = 50 + laneIdx * (LANE_WIDTH + LANE_SPACING)
+    const laneY = 50
+
+    // Position nodes within this lane
+    sg.nodeIds.forEach((nodeId, nodeIdx) => {
+      const node = nodes.get(nodeId)
+      if (node) {
+        node.position = {
+          x: laneX + LANE_WIDTH / 2 - 60,
+          y: laneY + LANE_PADDING_TOP + nodeIdx * NODE_SPACING_Y,
+        }
+        allNodes.push(node)
+        placedNodeIds.add(nodeId)
+      }
+    })
+
+    // Create the swimlane background node
+    const laneHeight = Math.max(
+      400,
+      LANE_PADDING_TOP + sg.nodeIds.length * NODE_SPACING_Y + 60,
+    )
+    const laneData: SwimlaneNodeData = {
+      label: sg.label,
+      width: LANE_WIDTH,
+      height: laneHeight,
+    }
+    allNodes.push({
+      id: `lane_${sg.id}`,
+      type: 'swimlane',
+      position: { x: laneX, y: laneY },
+      data: laneData as unknown as Record<string, unknown>,
+    })
+  })
+
+  // Add any ungrouped nodes
+  let ungroupedIdx = 0
+  for (const [id, node] of nodes) {
+    if (!placedNodeIds.has(id)) {
+      const offsetX = subgraphs.length * (LANE_WIDTH + LANE_SPACING) + 50
+      node.position = {
+        x: offsetX,
+        y: 50 + ungroupedIdx * NODE_SPACING_Y,
+      }
+      allNodes.push(node)
+      ungroupedIdx++
+    }
+  }
+
+  // Sort so swimlanes are first (lower z-index effect through render order)
+  allNodes.sort((a, b) => {
+    if (a.type === 'swimlane' && b.type !== 'swimlane') return -1
+    if (a.type !== 'swimlane' && b.type === 'swimlane') return 1
+    return 0
+  })
+
+  return { nodes: allNodes, edges }
+}
+
+function ensureActivityNode(nodes: Map<string, DiagramNode>, id: string) {
+  if (!nodes.has(id)) {
+    const data: ActivityNodeData = { label: id }
+    nodes.set(id, {
+      id,
+      type: 'activity',
+      position: { x: 0, y: 0 },
+      data: data as unknown as Record<string, unknown>,
+    })
+  }
 }
