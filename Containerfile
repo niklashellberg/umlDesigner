@@ -24,6 +24,8 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NODE_OPTIONS="--max-old-space-size=1536"
 RUN pnpm build
+# Compile WS server TS -> JS for production (avoids --experimental-strip-types)
+RUN npx tsc server/ws-server.ts --outDir server/dist --esModuleInterop --module commonjs --target es2022 --skipLibCheck
 
 # -- Production --
 FROM node:22-bookworm-slim AS runner
@@ -38,7 +40,7 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
 
 # Entrypoint script: starts WS server + Next.js app
-RUN printf '#!/bin/bash\nnode --experimental-strip-types /app/server/ws-server.ts &\nexec node /app/server.js\n' > /app/entrypoint.sh && \
+RUN printf '#!/bin/bash\nnode /app/server/dist/ws-server.js &\nexec node /app/server.js\n' > /app/entrypoint.sh && \
     chmod +x /app/entrypoint.sh
 
 RUN mkdir -p /app/data/diagrams /app/data/context && \

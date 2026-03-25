@@ -8,7 +8,10 @@ async function ensureDir() {
   await fs.mkdir(DATA_DIR, { recursive: true })
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
 function diagramPath(id: string) {
+  if (!UUID_RE.test(id)) throw new Error(`Invalid diagram id: ${id}`)
   return path.join(DATA_DIR, `${id}.json`)
 }
 
@@ -19,9 +22,13 @@ export async function listDiagrams(): Promise<DiagramMeta[]> {
 
   for (const file of files) {
     if (!file.endsWith('.json')) continue
-    const content = await fs.readFile(path.join(DATA_DIR, file), 'utf-8')
-    const diagram: Diagram = JSON.parse(content)
-    diagrams.push(diagram.meta)
+    try {
+      const content = await fs.readFile(path.join(DATA_DIR, file), 'utf-8')
+      const diagram: Diagram = JSON.parse(content)
+      diagrams.push(diagram.meta)
+    } catch {
+      // Skip malformed files
+    }
   }
 
   return diagrams.sort(
