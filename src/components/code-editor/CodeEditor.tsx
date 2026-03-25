@@ -71,6 +71,23 @@ export function CodeEditor({ yText, provider }: Props = {}) {
   // Hold ref to MonacoBinding so we can destroy it on cleanup
   const bindingRef = useRef<{ destroy: () => void } | null>(null)
 
+  // When the store code changes externally (e.g., canvas sync), update Monaco
+  // if we are NOT in Yjs-bound mode or if the editor content differs
+  const prevCodeRef = useRef(code)
+  useEffect(() => {
+    if (code === prevCodeRef.current) return
+    prevCodeRef.current = code
+    const editor = editorRef.current
+    if (!editor) return
+    const model = editor.getModel()
+    if (!model) return
+    const currentValue = model.getValue()
+    if (currentValue !== code) {
+      // Temporarily suppress onChange to avoid feedback loop
+      model.setValue(code)
+    }
+  }, [code])
+
   // When yText changes (i.e. Yjs becomes available), create / recreate the binding
   useEffect(() => {
     if (!yText || !editorRef.current) return

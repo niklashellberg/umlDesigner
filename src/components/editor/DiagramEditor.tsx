@@ -200,27 +200,38 @@ export function DiagramEditor({ diagram }: Props) {
   // -------------------------------------------------------------------------
   // Canvas change handlers
   // -------------------------------------------------------------------------
+  const updateCodeFromCanvas = useCallback(
+    (nodes: DiagramNode[], edges: DiagramEdge[]) => {
+      const mermaidCode = syncToCode(nodes, edges, diagramType)
+      setCode(mermaidCode)
+
+      // Update Y.Text so MonacoBinding sees the change
+      if (yText) {
+        const currentText = yText.toString()
+        if (currentText !== mermaidCode) {
+          yText.doc?.transact(() => {
+            yText.delete(0, yText.length)
+            yText.insert(0, mermaidCode)
+          })
+        }
+      }
+    },
+    [diagramType, setCode, yText],
+  )
+
   const handleCanvasNodesChange = useCallback(
     (nodes: DiagramNode[]) => {
       setStoreNodes(nodes)
       if (mode === 'visual' || mode === 'split') {
         const edges = useDiagramStore.getState().edges
-        const mermaidCode = syncToCode(nodes, edges, diagramType)
-        setCode(mermaidCode)
+        updateCodeFromCanvas(nodes, edges)
 
-        // Write to Yjs
         if (yjsProvider) {
-          const doc = yjsProvider.doc
-          syncNodesToYjs(nodes, getSharedNodes(doc))
-          const sharedCode = getSharedCode(doc)
-          if (sharedCode.toString() !== mermaidCode) {
-            sharedCode.delete(0, sharedCode.length)
-            sharedCode.insert(0, mermaidCode)
-          }
+          syncNodesToYjs(nodes, getSharedNodes(yjsProvider.doc))
         }
       }
     },
-    [mode, diagramType, setStoreNodes, setCode, yjsProvider],
+    [mode, setStoreNodes, updateCodeFromCanvas, yjsProvider],
   )
 
   const handleCanvasEdgesChange = useCallback(
@@ -228,22 +239,14 @@ export function DiagramEditor({ diagram }: Props) {
       setStoreEdges(edges)
       if (mode === 'visual' || mode === 'split') {
         const nodes = useDiagramStore.getState().nodes
-        const mermaidCode = syncToCode(nodes, edges, diagramType)
-        setCode(mermaidCode)
+        updateCodeFromCanvas(nodes, edges)
 
-        // Write to Yjs
         if (yjsProvider) {
-          const doc = yjsProvider.doc
-          syncEdgesToYjs(edges, getSharedEdges(doc))
-          const sharedCode = getSharedCode(doc)
-          if (sharedCode.toString() !== mermaidCode) {
-            sharedCode.delete(0, sharedCode.length)
-            sharedCode.insert(0, mermaidCode)
-          }
+          syncEdgesToYjs(edges, getSharedEdges(yjsProvider.doc))
         }
       }
     },
-    [mode, diagramType, setStoreEdges, setCode, yjsProvider],
+    [mode, setStoreEdges, updateCodeFromCanvas, yjsProvider],
   )
 
   // -------------------------------------------------------------------------
