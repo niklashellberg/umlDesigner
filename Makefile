@@ -7,7 +7,7 @@ build:
 
 up: build
 	container run --name uml-designer -d \
-		-m 2048 \
+		-m 2048M \
 		-p 3000:3000 \
 		-p 4444:4444 \
 		uml-designer

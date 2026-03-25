@@ -71,19 +71,21 @@ export function CodeEditor({ yText, provider }: Props = {}) {
   // Hold ref to MonacoBinding so we can destroy it on cleanup
   const bindingRef = useRef<{ destroy: () => void } | null>(null)
 
-  // When the store code changes externally (e.g., canvas sync), update Monaco
-  // if we are NOT in Yjs-bound mode or if the editor content differs
+  // When the store code changes externally (e.g., canvas sync), update Monaco.
+  // Skip only when MonacoBinding is actually active (bindingRef.current set) —
+  // NOT just when yText is non-null, because there is an async window between
+  // yText being set and MonacoBinding loading (dynamic import of y-monaco).
   const prevCodeRef = useRef(code)
   useEffect(() => {
     if (code === prevCodeRef.current) return
     prevCodeRef.current = code
+    if (bindingRef.current) return
     const editor = editorRef.current
     if (!editor) return
     const model = editor.getModel()
     if (!model) return
     const currentValue = model.getValue()
     if (currentValue !== code) {
-      // Temporarily suppress onChange to avoid feedback loop
       model.setValue(code)
     }
   }, [code])
@@ -249,10 +251,11 @@ export function CodeEditor({ yText, provider }: Props = {}) {
     <div className="h-full w-full overflow-hidden">
       <Editor
         defaultLanguage="mermaid"
-        // In Yjs mode, MonacoBinding manages the model content.
-        // We still provide value as the initial content for non-Yjs mode.
-        value={yText ? undefined : code}
-        defaultValue={yText ? code : undefined}
+        // Always controlled: @monaco-editor/react compares model.getValue()
+        // against value and only calls executeEdits when they differ, so this
+        // coexists safely with MonacoBinding (which keeps yText and model in
+        // sync — the values match, so the controlled prop is a no-op).
+        value={code}
         onChange={handleChange}
         onMount={handleMount}
         theme="vs-dark"

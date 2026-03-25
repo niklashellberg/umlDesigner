@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDiagram, saveDiagram, deleteDiagram } from '@/lib/storage/diagrams'
-import { pushCodeToYjs } from '@/lib/mcp/yjs-bridge'
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -39,23 +38,13 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
   await saveDiagram(diagram)
 
-  // If mermaid code changed, attempt to push the update into the live Yjs
-  // document so any browser with the diagram open sees the change immediately.
-  // This is best-effort — if the WS server is not running we still return OK.
-  let yjsResult: { ok: boolean; error?: string } = { ok: true }
-  if (incomingCode !== undefined) {
-    yjsResult = await pushCodeToYjs(id, incomingCode)
-    if (!yjsResult.ok) {
-      console.warn(
-        `[mcp] Yjs live-push skipped for diagram ${id}: ${yjsResult.error}`,
-      )
-    }
-  }
+  // NOTE: We intentionally do NOT call pushCodeToYjs here.
+  // The browser is already connected to the Yjs room and keeps Y.Text in sync.
+  // Pushing from the server-side would create a fresh Y.Doc with a new clientId,
+  // causing CRDT to merge both inserts (doubling the content on every save).
+  // The MCP tool `update_diagram_code` handles its own Yjs push for API-driven changes.
 
-  return NextResponse.json({
-    ...diagram,
-    _yjs: yjsResult.ok ? 'synced' : 'unavailable',
-  })
+  return NextResponse.json(diagram)
 }
 
 export async function DELETE(_request: NextRequest, { params }: RouteParams) {

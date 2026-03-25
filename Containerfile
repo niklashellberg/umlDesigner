@@ -38,7 +38,7 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
 
 # Entrypoint script: starts WS server + Next.js app
-RUN printf '#!/bin/bash\nnode /app/server/ws-server.js &\nexec node /app/server.js\n' > /app/entrypoint.sh && \
+RUN printf '#!/bin/bash\nnode --experimental-strip-types /app/server/ws-server.ts &\nexec node /app/server.js\n' > /app/entrypoint.sh && \
     chmod +x /app/entrypoint.sh
 
 RUN mkdir -p /app/data/diagrams /app/data/context && \

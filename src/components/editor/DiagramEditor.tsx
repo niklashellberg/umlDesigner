@@ -70,26 +70,15 @@ export function DiagramEditor({ diagram }: Props) {
   // -------------------------------------------------------------------------
   useEffect(() => {
     let destroyed = false
+    let yTextExposed = false
 
     const { doc, provider, destroy } = createYjsProvider(diagram.meta.id)
     yjsDestroyRef.current = destroy
 
-    // Seed the doc with initial data so the server persists a starting state
-    seedDocFromDiagram(
-      doc,
-      diagram.meta,
-      diagram.nodes,
-      diagram.edges,
-      diagram.code,
-    )
-
     // Set up local awareness (username / colour)
     initLocalAwareness(provider)
 
-    // Expose Y.Text to CodeEditor
     const sharedCode = getSharedCode(doc)
-
-    // UndoManager tracks changes to code, nodes, and edges
     const yNodes = getSharedNodes(doc)
     const yEdges = getSharedEdges(doc)
     const manager = new Y.UndoManager([sharedCode, yNodes, yEdges], {
@@ -97,7 +86,6 @@ export function DiagramEditor({ diagram }: Props) {
     })
 
     if (!destroyed) {
-      setYText(sharedCode)
       setYjsProvider(provider)
       setUndoManager(manager)
     }
@@ -121,8 +109,48 @@ export function DiagramEditor({ diagram }: Props) {
     yEdges.observe(edgesObserver)
     sharedCode.observe(codeObserver)
 
+    // Seed the doc AFTER WS sync to prevent CRDT duplication.
+    //
+    // If we seed before sync the fresh local doc gets an insert(clientId=NEW, "code…").
+    // The server already has insert(clientId=OLD, "code…") from the previous session.
+    // Yjs keeps both (different client IDs) → content doubles on every page reload.
+    //
+    // After sync we know the server's state and can insert only when truly needed.
+    function seedAndExposeYText() {
+      if (yTextExposed || destroyed) return
+      yTextExposed = true
+
+      // Reset code to the canonical saved state when the server's copy differs
+      // (handles both brand-new diagrams and content corrupted by the pre-fix bug).
+      const serverCode = sharedCode.toString()
+      if (serverCode !== diagram.code) {
+        doc.transact(() => {
+          if (sharedCode.length > 0) sharedCode.delete(0, sharedCode.length)
+          if (diagram.code.length > 0) sharedCode.insert(0, diagram.code)
+        })
+      }
+
+      // Seed meta/nodes/edges only when not yet initialised (guards are inside)
+      seedDocFromDiagram(doc, diagram.meta, diagram.nodes, diagram.edges, diagram.code)
+
+      if (!destroyed) {
+        setYText(sharedCode)
+      }
+    }
+
+    const handleSync = (isSynced: boolean) => {
+      if (isSynced) seedAndExposeYText()
+    }
+    provider.on('sync', handleSync)
+
+    // Fallback: if the WS server is offline the sync event never fires;
+    // seed from JSON so the editor is not blank.
+    const offlineTimer = setTimeout(seedAndExposeYText, 1500)
+
     return () => {
       destroyed = true
+      clearTimeout(offlineTimer)
+      provider.off('sync', handleSync)
       yNodes.unobserve(nodesObserver)
       yEdges.unobserve(edgesObserver)
       sharedCode.unobserve(codeObserver)
@@ -304,6 +332,22 @@ export function DiagramEditor({ diagram }: Props) {
     return `Saved ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
   }, [])
 
+  // Manual sync: regenerate code from the current canvas nodes/edges
+  const handleSyncCode = useCallback(() => {
+    if (storeNodes.length === 0) return
+    const mermaidCode = syncToCode(storeNodes, storeEdges, diagramType)
+    setCode(mermaidCode)
+    if (yText) {
+      const currentText = yText.toString()
+      if (currentText !== mermaidCode) {
+        yText.doc?.transact(() => {
+          yText.delete(0, yText.length)
+          yText.insert(0, mermaidCode)
+        })
+      }
+    }
+  }, [storeNodes, storeEdges, diagramType, setCode, yText])
+
   const modeIcons: Record<EditorMode, string> = {
     code: 'Code',
     split: 'Split',
@@ -368,6 +412,16 @@ export function DiagramEditor({ diagram }: Props) {
         <div className="flex items-center gap-3">
           {/* Collaboration status – connection + remote user avatars */}
           <CollaborationStatus provider={yjsProvider} />
+
+          {(mode === 'split' || mode === 'visual') && storeNodes.length > 0 && (
+            <button
+              onClick={handleSyncCode}
+              className="px-3 py-1 text-xs font-medium rounded-md bg-surface border border-border/50 text-muted hover:text-foreground hover:bg-surface-hover transition-all"
+              title="Regenerate Mermaid code from canvas"
+            >
+              Sync Code
+            </button>
+          )}
 
           <ExportMenu />
 
