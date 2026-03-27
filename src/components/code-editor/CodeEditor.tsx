@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useRef, useEffect } from 'react'
+import { useCallback, useRef, useEffect, useState } from 'react'
 import Editor, { type OnMount } from '@monaco-editor/react'
 import { useDiagramStore } from '@/lib/store/diagram-store'
 import type { WebsocketProvider } from 'y-websocket'
@@ -68,6 +68,8 @@ export function CodeEditor({ yText, provider }: Props = {}) {
 
   // Hold a ref to the Monaco editor instance for the Yjs binding
   const editorRef = useRef<MonacoEditorInstance | null>(null)
+  // Track when editor is mounted so the yText binding effect can depend on it
+  const [editorReady, setEditorReady] = useState(false)
   // Hold ref to MonacoBinding so we can destroy it on cleanup
   const bindingRef = useRef<{ destroy: () => void } | null>(null)
 
@@ -92,9 +94,10 @@ export function CodeEditor({ yText, provider }: Props = {}) {
     }
   }, [code])
 
-  // When yText changes (i.e. Yjs becomes available), create / recreate the binding
+  // When yText AND editor are both ready, create the MonacoBinding.
+  // editorReady is state (not a ref) so the effect re-runs when the editor mounts.
   useEffect(() => {
-    if (!yText || !editorRef.current) return
+    if (!yText || !editorReady || !editorRef.current) return
 
     // Lazily import MonacoBinding to avoid SSR issues
     let cancelled = false
@@ -134,11 +137,12 @@ export function CodeEditor({ yText, provider }: Props = {}) {
       bindingRef.current?.destroy()
       bindingRef.current = null
     }
-  }, [yText, provider, setCode])
+  }, [yText, editorReady, provider, setCode])
 
   const handleMount: OnMount = useCallback(
     (editor, monaco) => {
       editorRef.current = editor
+      setEditorReady(true)
 
       monaco.languages.register({ id: 'mermaid' })
 
@@ -231,11 +235,11 @@ export function CodeEditor({ yText, provider }: Props = {}) {
     <div className="h-full w-full overflow-hidden">
       <Editor
         defaultLanguage="mermaid"
-        // When MonacoBinding is active it owns the model text — using a
-        // controlled `value` prop would fight with it and cause cursor jumps
-        // or content loss. Use `defaultValue` so Monaco only seeds the model
-        // on mount; the binding + our external-code effect handle updates.
-        defaultValue={code}
+        // Controlled: @monaco-editor/react compares model.getValue() against
+        // value and only calls executeEdits when they differ, so this coexists
+        // with MonacoBinding (which keeps yText and model in sync — the values
+        // match, so the controlled prop is a no-op).
+        value={code}
         onChange={handleChange}
         onMount={handleMount}
         theme="vs-dark"
