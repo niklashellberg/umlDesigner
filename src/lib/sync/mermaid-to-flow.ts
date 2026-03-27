@@ -4,26 +4,40 @@ import type { ClassNodeData, ProcessNodeData, ActivityNodeData, SwimlaneNodeData
 /**
  * Parses Mermaid diagram code into React Flow nodes and edges.
  * Uses regex-based parsing for the supported Mermaid subset.
+ *
+ * When `existingPositions` is provided, parsed nodes whose IDs match a key
+ * in the map will reuse the saved position instead of being auto-laid-out.
  */
 export function mermaidToFlow(
   code: string,
   diagramType: DiagramType,
+  existingPositions?: Map<string, { x: number; y: number }>,
 ): { nodes: DiagramNode[]; edges: DiagramEdge[] } {
   const trimmed = code.trim()
 
+  let result: { nodes: DiagramNode[]; edges: DiagramEdge[] }
+
   if (diagramType === 'class' || trimmed.startsWith('classDiagram')) {
-    return parseClassDiagram(trimmed)
+    result = parseClassDiagram(trimmed)
+  } else if (diagramType === 'activity') {
+    result = parseActivity(trimmed)
+  } else if (diagramType === 'flowchart' || trimmed.startsWith('flowchart')) {
+    result = parseFlowchart(trimmed)
+  } else {
+    return { nodes: [], edges: [] }
   }
 
-  if (diagramType === 'activity') {
-    return parseActivity(trimmed)
+  // Restore saved positions for nodes that already existed on the canvas
+  if (existingPositions && existingPositions.size > 0) {
+    for (const node of result.nodes) {
+      const saved = existingPositions.get(node.id)
+      if (saved) {
+        node.position = { x: saved.x, y: saved.y }
+      }
+    }
   }
 
-  if (diagramType === 'flowchart' || trimmed.startsWith('flowchart')) {
-    return parseFlowchart(trimmed)
-  }
-
-  return { nodes: [], edges: [] }
+  return result
 }
 
 // ---------- Class Diagram Parsing ----------

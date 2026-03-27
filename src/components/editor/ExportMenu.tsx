@@ -5,6 +5,7 @@ import { useDiagramStore } from '@/lib/store/diagram-store'
 import { exportMermaidFile } from '@/lib/export/mermaid'
 import { exportSvgFile } from '@/lib/export/svg'
 import { exportPngFile } from '@/lib/export/png'
+import { syncToCode } from '@/lib/sync/sync-engine'
 
 interface ExportOption {
   label: string
@@ -15,6 +16,7 @@ interface ExportOption {
 export function ExportMenu() {
   const [isOpen, setIsOpen] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const code = useDiagramStore((s) => s.code)
   const title = useDiagramStore((s) => s.meta?.title ?? 'diagram')
@@ -36,10 +38,20 @@ export function ExportMenu() {
   const handleExport = useCallback(
     async (action: ExportOption['action']) => {
       setIsExporting(true)
+      setExportError(null)
       try {
-        await action(code, title)
+        // Re-generate Mermaid code from the current canvas state so the
+        // exported output matches what the user sees on screen.
+        const { nodes, edges, meta } = useDiagramStore.getState()
+        const diagramType = meta?.type ?? 'class'
+        const freshCode =
+          nodes.length > 0 ? syncToCode(nodes, edges, diagramType) : code
+
+        await action(freshCode, title)
       } catch (err) {
         console.error('Export failed:', err)
+        setExportError('Export failed — check that the diagram syntax is valid')
+        setTimeout(() => setExportError(null), 4000)
       } finally {
         setIsExporting(false)
         setIsOpen(false)
@@ -82,7 +94,13 @@ export function ExportMenu() {
         </svg>
       </button>
 
-      {isOpen && (
+      {exportError && (
+        <div className="absolute right-0 top-full mt-1.5 w-56 rounded-lg border border-red-500/50 bg-red-950/80 px-3 py-2 text-xs text-red-300 shadow-xl z-50">
+          {exportError}
+        </div>
+      )}
+
+      {isOpen && !exportError && (
         <div className="absolute right-0 top-full mt-1.5 w-56 rounded-lg border border-border bg-surface shadow-xl shadow-black/30 overflow-hidden z-50">
           <div className="px-3 py-2 border-b border-border">
             <p className="text-xs font-medium text-muted uppercase tracking-wider">Export as</p>

@@ -71,14 +71,16 @@ export function CodeEditor({ yText, provider }: Props = {}) {
   // Hold ref to MonacoBinding so we can destroy it on cleanup
   const bindingRef = useRef<{ destroy: () => void } | null>(null)
 
-  // When the store code changes externally (e.g., canvas sync), update Monaco.
-  // Skip only when MonacoBinding is actually active (bindingRef.current set) —
-  // NOT just when yText is non-null, because there is an async window between
-  // yText being set and MonacoBinding loading (dynamic import of y-monaco).
+  // When the store code changes externally (e.g., canvas sync in split mode),
+  // push the new value into Monaco. When MonacoBinding is active the model is
+  // driven by Y.Text — the DiagramEditor already writes to yText, so
+  // MonacoBinding picks it up automatically and we only need to handle the
+  // no-binding fallback (offline / binding not yet loaded).
   const prevCodeRef = useRef(code)
   useEffect(() => {
     if (code === prevCodeRef.current) return
     prevCodeRef.current = code
+    // When binding is active, Y.Text is the source of truth — skip direct model writes
     if (bindingRef.current) return
     const editor = editorRef.current
     if (!editor) return
@@ -209,31 +211,9 @@ export function CodeEditor({ yText, provider }: Props = {}) {
 
       editor.focus()
 
-      // If yText is already available when the editor mounts, trigger binding
-      // by re-running the effect. We achieve this by calling the import directly.
-      if (yText) {
-        import('y-monaco').then(({ MonacoBinding }) => {
-          if (!editorRef.current) return
-          const model = editorRef.current.getModel()
-          if (!model) return
-          bindingRef.current?.destroy()
-          const binding = new MonacoBinding(
-            yText,
-            model,
-            new Set([editorRef.current]),
-            provider?.awareness ?? undefined,
-          )
-          bindingRef.current = binding
-
-          const observer = () => setCode(yText.toString())
-          yText.observe(observer)
-          ;(binding as unknown as { _yjsCleanup?: () => void })._yjsCleanup = () => {
-            yText.unobserve(observer)
-          }
-        })
-      }
+      // The useEffect for yText will handle binding creation — no duplicate needed here.
     },
-    [yText, provider, setCode],
+    [],
   )
 
   const handleChange = useCallback(
@@ -251,11 +231,11 @@ export function CodeEditor({ yText, provider }: Props = {}) {
     <div className="h-full w-full overflow-hidden">
       <Editor
         defaultLanguage="mermaid"
-        // Always controlled: @monaco-editor/react compares model.getValue()
-        // against value and only calls executeEdits when they differ, so this
-        // coexists safely with MonacoBinding (which keeps yText and model in
-        // sync — the values match, so the controlled prop is a no-op).
-        value={code}
+        // When MonacoBinding is active it owns the model text — using a
+        // controlled `value` prop would fight with it and cause cursor jumps
+        // or content loss. Use `defaultValue` so Monaco only seeds the model
+        // on mount; the binding + our external-code effect handle updates.
+        defaultValue={code}
         onChange={handleChange}
         onMount={handleMount}
         theme="vs-dark"

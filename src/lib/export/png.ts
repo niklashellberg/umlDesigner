@@ -2,7 +2,7 @@ import mermaid from 'mermaid'
 import DOMPurify from 'dompurify'
 
 export async function exportPngFile(code: string, filename: string) {
-  const sanitized = filename.replace(/[^a-zA-Z0-9_-]/g, '_')
+  const sanitized = filename.replace(/[^a-zA-Z0-9_-]/g, '_') || 'diagram'
   const id = `export-png-${Date.now()}`
   const { svg } = await mermaid.render(id, code)
 
