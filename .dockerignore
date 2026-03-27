@@ -1,6 +1,7 @@
 node_modules
-.next
 .git
 data
 *.md
 .env*
+.next/cache
+# Allow .next/standalone and .next/static (needed for COPY)
