@@ -156,7 +156,10 @@ export function DiagramEditor({ diagram }: Props) {
       setStoreEdges(edges)
     }
     const codeObserver = () => {
-      setCode(sharedCode.toString())
+      const text = sharedCode.toString()
+      // Don't overwrite store with empty Y.Text before seeding completes
+      if (text.length === 0 && !yTextExposed) return
+      setCode(text)
     }
 
     yNodes.observe(nodesObserver)

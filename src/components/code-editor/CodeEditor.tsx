@@ -235,11 +235,11 @@ export function CodeEditor({ yText, provider }: Props = {}) {
     <div className="h-full w-full overflow-hidden">
       <Editor
         defaultLanguage="mermaid"
-        // Controlled: @monaco-editor/react compares model.getValue() against
-        // value and only calls executeEdits when they differ, so this coexists
-        // with MonacoBinding (which keeps yText and model in sync — the values
-        // match, so the controlled prop is a no-op).
-        value={code}
+        // Don't use controlled value when MonacoBinding is active — the binding
+        // owns the model text. When yText is available, MonacoBinding drives the
+        // editor via Y.Text. When yText is null (offline/not yet connected),
+        // controlled value={code} keeps the editor in sync with the store.
+        value={yText ? undefined : code}
         onChange={handleChange}
         onMount={handleMount}
         theme="vs-dark"
