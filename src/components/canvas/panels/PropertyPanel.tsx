@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from 'react'
 import { useReactFlow } from '@xyflow/react'
-import type { ClassNodeData, InterfaceNodeData, ProcessNodeData, ActivityNodeData, SwimlaneNodeData } from '@/lib/types/uml'
+import type { ClassNodeData, InterfaceNodeData, ProcessNodeData, ActivityNodeData, SwimlaneNodeData, StateNodeData, EntityNodeData } from '@/lib/types/uml'
 import type { DiagramNode } from '@/lib/types/diagram'
 
 interface Props {
@@ -44,6 +44,12 @@ export function PropertyPanel({ selectedNode, onClose }: Props) {
         )}
         {selectedNode.type === 'swimlane' && (
           <SwimlaneProperties node={selectedNode} />
+        )}
+        {selectedNode.type === 'state' && (
+          <StateProperties node={selectedNode} />
+        )}
+        {selectedNode.type === 'entity' && (
+          <EntityProperties node={selectedNode} />
         )}
       </div>
     </div>
@@ -231,6 +237,64 @@ function SwimlaneProperties({ node }: { node: DiagramNode }) {
         label="Height"
         value={String(data.height || 500)}
         onChange={(v) => update({ height: parseInt(v, 10) || 500 })}
+      />
+    </div>
+  )
+}
+
+function StateProperties({ node }: { node: DiagramNode }) {
+  const { setNodes } = useReactFlow()
+  const data = node.data as unknown as StateNodeData
+
+  const update = useCallback(
+    (partial: Partial<StateNodeData>) => {
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.id === node.id ? { ...n, data: { ...n.data, ...partial } } : n,
+        ),
+      )
+    },
+    [node.id, setNodes],
+  )
+
+  return (
+    <div className="flex flex-col gap-3">
+      <FieldInput
+        label="State Name"
+        value={data.label}
+        onChange={(v) => update({ label: v })}
+      />
+    </div>
+  )
+}
+
+function EntityProperties({ node }: { node: DiagramNode }) {
+  const { setNodes } = useReactFlow()
+  const data = node.data as unknown as EntityNodeData
+
+  const update = useCallback(
+    (partial: Partial<EntityNodeData>) => {
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.id === node.id ? { ...n, data: { ...n.data, ...partial } } : n,
+        ),
+      )
+    },
+    [node.id, setNodes],
+  )
+
+  return (
+    <div className="flex flex-col gap-3">
+      <FieldInput
+        label="Entity Name"
+        value={data.label}
+        onChange={(v) => update({ label: v })}
+      />
+      <ListEditor
+        label="Attributes"
+        items={data.attributes}
+        onChange={(items) => update({ attributes: items })}
+        placeholder="string name PK"
       />
     </div>
   )
