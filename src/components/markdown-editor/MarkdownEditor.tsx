@@ -58,10 +58,12 @@ export function MarkdownEditor({ yText, provider }: Props) {
   // editor remounts on switching back to Edit.
   useEffect(() => {
     if (viewMode !== 'edit') {
-      const b = bindingRef.current as unknown as { _yjsCleanup?: () => void } | null
-      b?._yjsCleanup?.()
-      bindingRef.current?.destroy()
-      bindingRef.current = null
+      if (bindingRef.current) {
+        const b = bindingRef.current as unknown as { _yjsCleanup?: () => void }
+        b._yjsCleanup?.()
+        try { bindingRef.current.destroy() } catch { /* already destroyed */ }
+        bindingRef.current = null
+      }
       editorRef.current = null
       setEditorReady(false)
     }
