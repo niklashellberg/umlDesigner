@@ -10,7 +10,7 @@ export function timestamp(): string {
 /** Create a new diagram of the given type and navigate to its editor. */
 export async function createDiagram(
   page: Page,
-  type: 'class' | 'flowchart' | 'activity',
+  type: 'class' | 'flowchart' | 'activity' | 'sequence',
 ): Promise<string> {
   await page.goto('/')
   await page.getByRole('button', { name: 'New Diagram' }).click()
@@ -253,11 +253,15 @@ export async function createDiagramViaApi(
   request: APIRequestContext,
   options: {
     title?: string
-    type?: 'class' | 'flowchart' | 'activity'
+    type?: 'class' | 'flowchart' | 'activity' | 'sequence'
     code?: string
   } = {},
 ): Promise<string> {
-  const { title = 'Untitled Diagram', type = 'class', code } = options
+  const { title = 'Untitled Diagram', type = 'class', code } = options as {
+    title: string
+    type: 'class' | 'flowchart' | 'activity' | 'sequence'
+    code?: string
+  }
 
   const createRes = await request.post('http://127.0.0.1:3000/api/mcp/diagrams', {
     data: { title, type },
@@ -304,4 +308,40 @@ export function extractDiagramId(url: string): string {
   const match = url.match(/\/diagram\/([^/?#]+)/)
   if (!match) throw new Error(`Cannot extract diagram ID from URL: ${url}`)
   return match[1]
+}
+
+/**
+ * Click a node on the canvas to select it.
+ * `nodeIndex` is the 0-based index among `.react-flow__node` elements.
+ */
+export async function selectCanvasNode(page: Page, nodeIndex: number): Promise<void> {
+  const node = page.locator('.react-flow__node').nth(nodeIndex)
+  await node.click()
+  await page.waitForTimeout(300)
+}
+
+/**
+ * Read a value from the property panel by field label.
+ * Returns the input value for the matching label.
+ */
+export async function getPropertyPanelValue(page: Page, fieldLabel: string): Promise<string> {
+  const panel = page.locator('.absolute.top-3.right-3')
+  const label = panel.locator('label', { hasText: fieldLabel })
+  const input = label.locator('..').locator('input')
+  return input.inputValue()
+}
+
+/**
+ * Set a value in the property panel by field label.
+ */
+export async function setPropertyPanelValue(
+  page: Page,
+  fieldLabel: string,
+  value: string,
+): Promise<void> {
+  const panel = page.locator('.absolute.top-3.right-3')
+  const label = panel.locator('label', { hasText: fieldLabel })
+  const input = label.locator('..').locator('input')
+  await input.fill(value)
+  await page.waitForTimeout(300)
 }
