@@ -3,6 +3,7 @@
 import { useCallback, useRef, useEffect, useState } from 'react'
 import Editor, { type OnMount } from '@monaco-editor/react'
 import { useDiagramStore } from '@/lib/store/diagram-store'
+import { copyAsHtml, copyAsMarkdown } from '@/lib/export/clipboard'
 import type { WebsocketProvider } from 'y-websocket'
 import type * as Y from 'yjs'
 import { MarkdownPreview } from './MarkdownPreview'
@@ -48,7 +49,11 @@ export function MarkdownEditor({ yText, provider }: Props) {
   const markdown = useDiagramStore((s) => s.markdown)
   const setMarkdown = useDiagramStore((s) => s.setMarkdown)
 
+  const code = useDiagramStore((s) => s.code)
+  const title = useDiagramStore((s) => s.meta?.title ?? 'Untitled')
+
   const [viewMode, setViewMode] = useState<ViewMode>('edit')
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null)
   const editorRef = useRef<MonacoEditorInstance | null>(null)
   const [editorReady, setEditorReady] = useState(false)
   const bindingRef = useRef<{ destroy: () => void } | null>(null)
@@ -187,7 +192,59 @@ export function MarkdownEditor({ yText, provider }: Props) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-end px-3 py-1 border-b border-border bg-background/50 shrink-0">
+      <div className="flex items-center justify-between px-3 py-1 border-b border-border bg-background/50 shrink-0">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              if (viewMode === 'edit' && editorRef.current) {
+                const editor = editorRef.current
+                const position = editor.getPosition()
+                if (position) {
+                  editor.executeEdits('insert-diagram', [{
+                    range: {
+                      startLineNumber: position.lineNumber,
+                      startColumn: position.column,
+                      endLineNumber: position.lineNumber,
+                      endColumn: position.column,
+                    },
+                    text: '\n\n{{diagram}}\n\n',
+                  }])
+                }
+              }
+            }}
+            disabled={viewMode !== 'edit'}
+            className="px-2.5 py-0.5 text-xs font-medium text-muted hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Insert current diagram reference"
+          >
+            + Diagram
+          </button>
+          <button
+            onClick={async () => {
+              try {
+                await copyAsHtml(title, markdown, code)
+                setCopyFeedback('HTML')
+                setTimeout(() => setCopyFeedback(null), 1500)
+              } catch { /* clipboard not available */ }
+            }}
+            className="px-2.5 py-0.5 text-xs font-medium text-muted hover:text-foreground transition-colors"
+            title="Copy as rich HTML for Confluence/Notion"
+          >
+            {copyFeedback === 'HTML' ? 'Copied!' : 'Copy HTML'}
+          </button>
+          <button
+            onClick={async () => {
+              try {
+                await copyAsMarkdown(markdown, code)
+                setCopyFeedback('MD')
+                setTimeout(() => setCopyFeedback(null), 1500)
+              } catch { /* clipboard not available */ }
+            }}
+            className="px-2.5 py-0.5 text-xs font-medium text-muted hover:text-foreground transition-colors"
+            title="Copy as Markdown for GitHub wiki"
+          >
+            {copyFeedback === 'MD' ? 'Copied!' : 'Copy MD'}
+          </button>
+        </div>
         <div className="flex gap-0.5 bg-surface rounded-md p-0.5 border border-border/50">
           {(['edit', 'preview'] as ViewMode[]).map((vm) => (
             <button

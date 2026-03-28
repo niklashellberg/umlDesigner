@@ -1,13 +1,41 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useDiagramStore } from '@/lib/store/diagram-store'
 
+function MermaidBlock({ code }: { code: string }) {
+  const [svg, setSvg] = useState<string>('')
+
+  useEffect(() => {
+    let cancelled = false
+    const id = `mermaid-preview-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    import('mermaid').then(({ default: mermaid }) => {
+      mermaid.initialize({ startOnLoad: false, theme: 'dark' })
+      mermaid.render(id, code).then(({ svg: renderedSvg }) => {
+        if (!cancelled) setSvg(renderedSvg)
+      }).catch(() => {
+        if (!cancelled) setSvg('<pre class="text-red-400 text-xs">Invalid Mermaid syntax</pre>')
+      })
+    })
+    return () => { cancelled = true }
+  }, [code])
+
+  return <div dangerouslySetInnerHTML={{ __html: svg }} className="my-4 flex justify-center" />
+}
+
 export function MarkdownPreview() {
   const markdown = useDiagramStore((s) => s.markdown)
+  const code = useDiagramStore((s) => s.code)
 
-  if (!markdown.trim()) {
+  // Replace {{diagram}} tokens with a live Mermaid code fence
+  const processedMarkdown = markdown.replace(
+    /\{\{diagram\}\}/g,
+    `\`\`\`mermaid\n${code}\n\`\`\``,
+  )
+
+  if (!processedMarkdown.trim()) {
     return (
       <div className="flex h-full items-center justify-center text-muted text-sm">
         <p className="text-center">
@@ -43,7 +71,20 @@ export function MarkdownPreview() {
         [&_strong]:font-semibold [&_strong]:text-foreground
         [&_em]:italic
       ">
-        <Markdown remarkPlugins={[remarkGfm]}>{markdown}</Markdown>
+        <Markdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            code({ className, children, ...props }) {
+              const match = /language-mermaid/.exec(className || '')
+              if (match) {
+                return <MermaidBlock code={String(children).trim()} />
+              }
+              return <code className={className} {...props}>{children}</code>
+            },
+          }}
+        >
+          {processedMarkdown}
+        </Markdown>
       </div>
     </div>
   )
