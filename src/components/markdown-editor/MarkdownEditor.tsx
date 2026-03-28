@@ -150,6 +150,11 @@ export function MarkdownEditor({ yText, provider }: Props) {
       lineDecorationsWidth: 0,
       lineNumbersMinChars: 3,
       overviewRulerBorder: false,
+      // Disable autocomplete in markdown — it steals space after # etc.
+      quickSuggestions: false,
+      suggestOnTriggerCharacters: false,
+      acceptSuggestionOnCommitCharacter: false,
+      wordBasedSuggestions: 'off',
     })
 
     _editor.focus()
