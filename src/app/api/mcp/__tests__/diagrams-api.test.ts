@@ -55,6 +55,7 @@ function makeDiagram(overrides: Partial<Diagram> = {}): Diagram {
     nodes: [],
     edges: [],
     code: 'classDiagram\n  class Foo {}\n',
+    markdown: '',
     ...overrides,
   }
 }

@@ -36,6 +36,11 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     diagram.code = incomingCode
   }
 
+  // Markdown documentation field
+  if (body.markdown !== undefined) diagram.markdown = body.markdown
+  // Migration: ensure markdown field exists for older diagrams
+  if (!diagram.markdown) diagram.markdown = ''
+
   await saveDiagram(diagram)
 
   // NOTE: We intentionally do NOT call pushCodeToYjs here.

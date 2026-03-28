@@ -76,5 +76,6 @@ export function createEmptyDiagram(title: string, type: DiagramType): Diagram {
     nodes: [],
     edges: [],
     code: defaultCode[type],
+    markdown: '',
   }
 }

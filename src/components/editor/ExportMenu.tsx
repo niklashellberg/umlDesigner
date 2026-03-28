@@ -5,6 +5,7 @@ import { useDiagramStore } from '@/lib/store/diagram-store'
 import { exportMermaidFile } from '@/lib/export/mermaid'
 import { exportSvgFile } from '@/lib/export/svg'
 import { exportPngFile } from '@/lib/export/png'
+import { exportMarkdownDoc } from '@/lib/export/markdown-doc'
 import { syncToCode } from '@/lib/sync/sync-engine'
 
 interface ExportOption {
@@ -19,6 +20,7 @@ export function ExportMenu() {
   const [exportError, setExportError] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const code = useDiagramStore((s) => s.code)
+  const markdown = useDiagramStore((s) => s.markdown)
   const title = useDiagramStore((s) => s.meta?.title ?? 'diagram')
 
   useEffect(() => {
@@ -75,6 +77,13 @@ export function ExportMenu() {
       label: 'PNG (.png)',
       description: 'Raster image at 2x resolution',
       action: exportPngFile,
+    },
+    {
+      label: 'Markdown Doc (.md)',
+      description: 'Documentation with embedded diagram',
+      action: (freshCode: string, filename: string) => {
+        exportMarkdownDoc(title, markdown, freshCode, filename)
+      },
     },
   ]
 

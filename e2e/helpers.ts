@@ -345,3 +345,55 @@ export async function setPropertyPanelValue(
   await input.fill(value)
   await page.waitForTimeout(300)
 }
+
+/** Switch to the "Docs" tab in the code panel. */
+export async function switchToDocsTab(page: Page): Promise<void> {
+  // The Docs button only exists inside the CodePanelTabs, so no ambiguity
+  await page.getByRole('button', { name: 'Docs', exact: true }).click()
+  await page.waitForTimeout(500)
+}
+
+/**
+ * Switch to the "Code" tab in the code panel.
+ * Avoids clicking the "Code" mode button in the header by targeting
+ * the tab button outside the header area.
+ */
+export async function switchToCodeTab(page: Page): Promise<void> {
+  // CodePanelTabs renders Code/Docs buttons outside <header>.
+  // The mode switcher in <header> also has a "Code" button.
+  // We target the one that is NOT inside header.
+  const tabBtns = page.locator('button', { hasText: /^Code$/ })
+  const count = await tabBtns.count()
+  for (let i = 0; i < count; i++) {
+    const btn = tabBtns.nth(i)
+    const inHeader = await btn.evaluate((el) => !!el.closest('header'))
+    if (!inHeader) {
+      await btn.click()
+      await page.waitForTimeout(500)
+      return
+    }
+  }
+  // Fallback: just click the first one
+  await tabBtns.first().click()
+  await page.waitForTimeout(500)
+}
+
+/**
+ * Set markdown documentation for a diagram via the API.
+ * Extracts the diagram ID from the current page URL.
+ */
+export async function setDiagramMarkdownViaApi(
+  request: APIRequestContext,
+  page: Page,
+  markdown: string,
+): Promise<void> {
+  const url = page.url()
+  const match = url.match(/\/diagram\/([^/?#]+)/)
+  if (!match) throw new Error(`Cannot extract diagram ID from URL: ${url}`)
+  const id = match[1]
+
+  const res = await request.put(`http://127.0.0.1:3000/api/mcp/diagrams/${id}`, {
+    data: { markdown },
+  })
+  expect(res.status()).toBe(200)
+}
