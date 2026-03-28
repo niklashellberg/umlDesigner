@@ -31,7 +31,9 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # test output
+/test-results/
 .playwright-mcp/*
+/playwright-report/
 
 # env files (can opt-in for committing if needed)
 .env*
@@ -51,5 +53,7 @@ next-env.d.ts
 # build artifacts
 /server/dist/
 
-# test screenshots
+# test screenshots & reports (generated, not source)
 test-*.png
+/docs/test-report/*.png
+/docs/test-report/
