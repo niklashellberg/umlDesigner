@@ -208,7 +208,7 @@ class Bar {
   // BUG: When code starts with 'classDiagram', passing diagramType='sequence'
   // still parses as class diagram because content sniffing takes priority
   // over the diagramType parameter.
-  it.fails('should return empty when diagramType mismatches code header', () => {
+  it('should return empty when diagramType mismatches code header', () => {
     const code = 'classDiagram\nclass A {\n}'
     const result = mermaidToFlow(code, 'sequence')
     expect(result.nodes).toHaveLength(0)

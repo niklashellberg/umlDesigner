@@ -335,13 +335,7 @@ test.describe('Error Resilience', () => {
     await expect(editor).toBeVisible()
   })
 
-  // BUG: When a diagram is initially created with invalid Mermaid code and then
-  // updated to valid code via API, the code-to-canvas sync fails to parse nodes
-  // on mode switch (Code -> Visual). The canvas remains empty even though the
-  // code editor shows valid flowchart code. The syncFromCode parser appears to
-  // not produce nodes in this scenario. This does not happen when the diagram
-  // starts with valid code.
-  test.fail('app recovers when setting valid code after invalid code', async ({ page, request }) => {
+  test('app recovers when setting valid code after invalid code', async ({ page, request }) => {
     diagramId = await createDiagramViaApi(request, {
       title: 'Recovery_Test',
       type: 'flowchart',
