@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useRef, useEffect } from 'react'
+import { useCallback, useRef, useEffect, useState } from 'react'
 import Editor, { type OnMount } from '@monaco-editor/react'
 import { useDiagramStore } from '@/lib/store/diagram-store'
 import type { WebsocketProvider } from 'y-websocket'
@@ -68,17 +68,21 @@ export function CodeEditor({ yText, provider }: Props = {}) {
 
   // Hold a ref to the Monaco editor instance for the Yjs binding
   const editorRef = useRef<MonacoEditorInstance | null>(null)
+  // Track when editor is mounted so the yText binding effect can depend on it
+  const [editorReady, setEditorReady] = useState(false)
   // Hold ref to MonacoBinding so we can destroy it on cleanup
   const bindingRef = useRef<{ destroy: () => void } | null>(null)
 
-  // When the store code changes externally (e.g., canvas sync), update Monaco.
-  // Skip only when MonacoBinding is actually active (bindingRef.current set) —
-  // NOT just when yText is non-null, because there is an async window between
-  // yText being set and MonacoBinding loading (dynamic import of y-monaco).
+  // When the store code changes externally (e.g., canvas sync in split mode),
+  // push the new value into Monaco. When MonacoBinding is active the model is
+  // driven by Y.Text — the DiagramEditor already writes to yText, so
+  // MonacoBinding picks it up automatically and we only need to handle the
+  // no-binding fallback (offline / binding not yet loaded).
   const prevCodeRef = useRef(code)
   useEffect(() => {
     if (code === prevCodeRef.current) return
     prevCodeRef.current = code
+    // When binding is active, Y.Text is the source of truth — skip direct model writes
     if (bindingRef.current) return
     const editor = editorRef.current
     if (!editor) return
@@ -90,9 +94,10 @@ export function CodeEditor({ yText, provider }: Props = {}) {
     }
   }, [code])
 
-  // When yText changes (i.e. Yjs becomes available), create / recreate the binding
+  // When yText AND editor are both ready, create the MonacoBinding.
+  // editorReady is state (not a ref) so the effect re-runs when the editor mounts.
   useEffect(() => {
-    if (!yText || !editorRef.current) return
+    if (!yText || !editorReady || !editorRef.current) return
 
     // Lazily import MonacoBinding to avoid SSR issues
     let cancelled = false
@@ -132,11 +137,12 @@ export function CodeEditor({ yText, provider }: Props = {}) {
       bindingRef.current?.destroy()
       bindingRef.current = null
     }
-  }, [yText, provider, setCode])
+  }, [yText, editorReady, provider, setCode])
 
   const handleMount: OnMount = useCallback(
     (editor, monaco) => {
       editorRef.current = editor
+      setEditorReady(true)
 
       monaco.languages.register({ id: 'mermaid' })
 
@@ -209,31 +215,9 @@ export function CodeEditor({ yText, provider }: Props = {}) {
 
       editor.focus()
 
-      // If yText is already available when the editor mounts, trigger binding
-      // by re-running the effect. We achieve this by calling the import directly.
-      if (yText) {
-        import('y-monaco').then(({ MonacoBinding }) => {
-          if (!editorRef.current) return
-          const model = editorRef.current.getModel()
-          if (!model) return
-          bindingRef.current?.destroy()
-          const binding = new MonacoBinding(
-            yText,
-            model,
-            new Set([editorRef.current]),
-            provider?.awareness ?? undefined,
-          )
-          bindingRef.current = binding
-
-          const observer = () => setCode(yText.toString())
-          yText.observe(observer)
-          ;(binding as unknown as { _yjsCleanup?: () => void })._yjsCleanup = () => {
-            yText.unobserve(observer)
-          }
-        })
-      }
+      // The useEffect for yText will handle binding creation — no duplicate needed here.
     },
-    [yText, provider, setCode],
+    [],
   )
 
   const handleChange = useCallback(
@@ -251,11 +235,11 @@ export function CodeEditor({ yText, provider }: Props = {}) {
     <div className="h-full w-full overflow-hidden">
       <Editor
         defaultLanguage="mermaid"
-        // Always controlled: @monaco-editor/react compares model.getValue()
-        // against value and only calls executeEdits when they differ, so this
-        // coexists safely with MonacoBinding (which keeps yText and model in
-        // sync — the values match, so the controlled prop is a no-op).
-        value={code}
+        // Don't use controlled value when MonacoBinding is active — the binding
+        // owns the model text. When yText is available, MonacoBinding drives the
+        // editor via Y.Text. When yText is null (offline/not yet connected),
+        // controlled value={code} keeps the editor in sync with the store.
+        value={yText ? undefined : code}
         onChange={handleChange}
         onMount={handleMount}
         theme="vs-dark"

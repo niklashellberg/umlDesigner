@@ -3,6 +3,8 @@ import { CreateDiagramButton } from '@/components/diagrams/CreateDiagramButton'
 import { DiagramCard } from '@/components/diagrams/DiagramCard'
 import { EmptyState } from '@/components/diagrams/EmptyState'
 
+export const dynamic = 'force-dynamic'
+
 export default async function HomePage() {
   const diagrams = await listDiagrams()
 

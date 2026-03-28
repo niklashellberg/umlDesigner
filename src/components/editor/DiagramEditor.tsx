@@ -58,6 +58,60 @@ export function DiagramEditor({ diagram }: Props) {
   // Track previous mode for sync on mode change
   const prevModeRef = useRef<EditorMode>(mode)
 
+  // Handle mode switch with sync — called imperatively instead of via useEffect
+  // to avoid firing on every code/node change.
+  const handleModeSwitch = useCallback(
+    (newMode: EditorMode) => {
+      if (!isInitialized) {
+        setMode(newMode)
+        return
+      }
+
+      const prev = prevModeRef.current
+
+      // Switching FROM code TO visual/split: parse code into nodes/edges
+      if (prev === 'code' && (newMode === 'visual' || newMode === 'split')) {
+        const currentCode = useDiagramStore.getState().code
+        const currentNodes = useDiagramStore.getState().nodes
+        const positions = new Map(
+          currentNodes.map((n) => [n.id, n.position]),
+        )
+        const result = syncFromCode(currentCode, diagramType, positions)
+        if (result.nodes.length > 0) {
+          setStoreNodes(result.nodes)
+          setStoreEdges(result.edges)
+
+          if (yjsProvider) {
+            const doc = yjsProvider.doc
+            syncNodesToYjs(result.nodes, getSharedNodes(doc))
+            syncEdgesToYjs(result.edges, getSharedEdges(doc))
+          }
+        }
+      }
+
+      // Switching FROM visual TO code/split: sync nodes/edges to code
+      if (prev === 'visual' && (newMode === 'code' || newMode === 'split')) {
+        const currentNodes = useDiagramStore.getState().nodes
+        const currentEdges = useDiagramStore.getState().edges
+        if (currentNodes.length > 0) {
+          const mermaidCode = syncToCode(currentNodes, currentEdges, diagramType)
+          setCode(mermaidCode)
+          if (yjsProvider && yText) {
+            const currentText = yText.toString()
+            if (currentText !== mermaidCode) {
+              yText.delete(0, yText.length)
+              yText.insert(0, mermaidCode)
+            }
+          }
+        }
+      }
+
+      prevModeRef.current = newMode
+      setMode(newMode)
+    },
+    [isInitialized, diagramType, setStoreNodes, setStoreEdges, setCode, yjsProvider, yText],
+  )
+
   // -------------------------------------------------------------------------
   // Initialise local store
   // -------------------------------------------------------------------------
@@ -102,7 +156,10 @@ export function DiagramEditor({ diagram }: Props) {
       setStoreEdges(edges)
     }
     const codeObserver = () => {
-      setCode(sharedCode.toString())
+      const text = sharedCode.toString()
+      // Don't overwrite store with empty Y.Text before seeding completes
+      if (text.length === 0 && !yTextExposed) return
+      setCode(text)
     }
 
     yNodes.observe(nodesObserver)
@@ -185,47 +242,6 @@ export function DiagramEditor({ diagram }: Props) {
   }, [code, save, isInitialized])
 
   // -------------------------------------------------------------------------
-  // Mode-switch sync
-  // -------------------------------------------------------------------------
-  useEffect(() => {
-    if (!isInitialized) return
-    const prev = prevModeRef.current
-    prevModeRef.current = mode
-
-    // Switching FROM code mode TO visual/split: parse code into nodes/edges
-    if (prev === 'code' && (mode === 'visual' || mode === 'split')) {
-      const result = syncFromCode(code, diagramType)
-      if (result.nodes.length > 0) {
-        setStoreNodes(result.nodes)
-        setStoreEdges(result.edges)
-
-        // Sync new nodes/edges into Yjs so collaborators see them
-        if (yjsProvider) {
-          const doc = yjsProvider.doc
-          syncNodesToYjs(result.nodes, getSharedNodes(doc))
-          syncEdgesToYjs(result.edges, getSharedEdges(doc))
-        }
-      }
-    }
-
-    // Switching FROM visual TO code/split: sync nodes/edges to code
-    if (prev === 'visual' && (mode === 'code' || mode === 'split')) {
-      if (storeNodes.length > 0) {
-        const mermaidCode = syncToCode(storeNodes, storeEdges, diagramType)
-        setCode(mermaidCode)
-        // Update shared code in Yjs
-        if (yjsProvider && yText) {
-          const currentText = yText.toString()
-          if (currentText !== mermaidCode) {
-            yText.delete(0, yText.length)
-            yText.insert(0, mermaidCode)
-          }
-        }
-      }
-    }
-  }, [mode, isInitialized, code, diagramType, storeNodes, storeEdges, setStoreNodes, setStoreEdges, setCode, yjsProvider, yText])
-
-  // -------------------------------------------------------------------------
   // Canvas change handlers
   // -------------------------------------------------------------------------
   const updateCodeFromCanvas = useCallback(
@@ -305,25 +321,37 @@ export function DiagramEditor({ diagram }: Props) {
   // -------------------------------------------------------------------------
   // Title editing
   // -------------------------------------------------------------------------
+  const originalTitleRef = useRef(title)
+
   const handleTitleClick = useCallback(() => {
+    originalTitleRef.current = title
     setIsEditingTitle(true)
     setTimeout(() => titleInputRef.current?.select(), 0)
-  }, [])
+  }, [title])
 
   const handleTitleBlur = useCallback(() => {
     setIsEditingTitle(false)
-    save()
-  }, [save])
+    // Only save if the title actually changed
+    if (title !== originalTitleRef.current) {
+      save()
+    }
+  }, [save, title])
 
   const handleTitleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'Enter') {
         setIsEditingTitle(false)
-        save()
+        if (title !== originalTitleRef.current) {
+          save()
+        }
       }
-      if (e.key === 'Escape') setIsEditingTitle(false)
+      if (e.key === 'Escape') {
+        // Rollback to the original title
+        setTitle(originalTitleRef.current)
+        setIsEditingTitle(false)
+      }
     },
-    [save],
+    [save, title, setTitle],
   )
 
   const formatSavedTime = useCallback((iso: string | null) => {
@@ -356,7 +384,7 @@ export function DiagramEditor({ diagram }: Props) {
 
   return (
     <div className="flex flex-col h-screen bg-background">
-      <header className="border-b border-border px-4 py-2 flex items-center justify-between shrink-0 bg-background/80 backdrop-blur-sm">
+      <header className="relative z-[60] border-b border-border px-4 py-2 flex items-center justify-between shrink-0 bg-background/80 backdrop-blur-sm">
         <div className="flex items-center gap-3">
           <Link
             href="/"
@@ -429,7 +457,7 @@ export function DiagramEditor({ diagram }: Props) {
             {(['code', 'split', 'visual'] as EditorMode[]).map((m) => (
               <button
                 key={m}
-                onClick={() => setMode(m)}
+                onClick={() => handleModeSwitch(m)}
                 className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
                   mode === m
                     ? 'bg-accent text-white shadow-sm shadow-accent/25'

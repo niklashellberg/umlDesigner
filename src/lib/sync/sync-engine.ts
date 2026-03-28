@@ -17,10 +17,13 @@ export function syncToCode(
 /**
  * Parses Mermaid code into React Flow nodes/edges.
  * Used when switching from code editor to visual canvas.
+ *
+ * Pass `existingPositions` to preserve manual node placement across syncs.
  */
 export function syncFromCode(
   code: string,
   diagramType: DiagramType,
+  existingPositions?: Map<string, { x: number; y: number }>,
 ): { nodes: DiagramNode[]; edges: DiagramEdge[] } {
-  return mermaidToFlow(code, diagramType)
+  return mermaidToFlow(code, diagramType, existingPositions)
 }

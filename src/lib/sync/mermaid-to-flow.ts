@@ -4,26 +4,47 @@ import type { ClassNodeData, ProcessNodeData, ActivityNodeData, SwimlaneNodeData
 /**
  * Parses Mermaid diagram code into React Flow nodes and edges.
  * Uses regex-based parsing for the supported Mermaid subset.
+ *
+ * When `existingPositions` is provided, parsed nodes whose IDs match a key
+ * in the map will reuse the saved position instead of being auto-laid-out.
  */
 export function mermaidToFlow(
   code: string,
   diagramType: DiagramType,
+  existingPositions?: Map<string, { x: number; y: number }>,
 ): { nodes: DiagramNode[]; edges: DiagramEdge[] } {
   const trimmed = code.trim()
 
-  if (diagramType === 'class' || trimmed.startsWith('classDiagram')) {
-    return parseClassDiagram(trimmed)
+  let result: { nodes: DiagramNode[]; edges: DiagramEdge[] }
+
+  // Use the explicit diagramType parameter — it always takes priority.
+  // Content sniffing is only used as a last resort when the diagramType
+  // doesn't map to a known parser (e.g. future types we haven't built yet).
+  if (diagramType === 'class') {
+    result = parseClassDiagram(trimmed)
+  } else if (diagramType === 'activity') {
+    result = parseActivity(trimmed)
+  } else if (diagramType === 'flowchart') {
+    result = parseFlowchart(trimmed)
+  } else {
+    // No parser for this diagramType — return empty.
+    // We intentionally do NOT content-sniff here because the caller
+    // explicitly requested a specific type; falling back to a different
+    // parser based on code content would be surprising and incorrect.
+    return { nodes: [], edges: [] }
   }
 
-  if (diagramType === 'activity') {
-    return parseActivity(trimmed)
+  // Restore saved positions for nodes that already existed on the canvas
+  if (existingPositions && existingPositions.size > 0) {
+    for (const node of result.nodes) {
+      const saved = existingPositions.get(node.id)
+      if (saved) {
+        node.position = { x: saved.x, y: saved.y }
+      }
+    }
   }
 
-  if (diagramType === 'flowchart' || trimmed.startsWith('flowchart')) {
-    return parseFlowchart(trimmed)
-  }
-
-  return { nodes: [], edges: [] }
+  return result
 }
 
 // ---------- Class Diagram Parsing ----------
@@ -163,19 +184,39 @@ function parseFlowchart(code: string): { nodes: DiagramNode[]; edges: DiagramEdg
     // Skip header
     if (line.startsWith('flowchart') || line.startsWith('graph')) continue
 
-    // Edge with optional label: A -->|label| B or A --> B
+    // Edge line: supports inline node definitions on both sides.
+    // Examples:
+    //   A --> B            (bare IDs)
+    //   A[Start] --> B     (source with shape)
+    //   A --> B[End]       (target with shape)
+    //   A[Start] --> B[End] (both with shapes)
+    //   A -->|label| B     (with edge label)
+    //   A[Start] -->|yes| B{Decision}
     const edgeMatch = line.match(
-      /^(\w+)\s+-->(?:\|([^|]*)\|)?\s+(\w+)$/,
+      /^(\w+)(?:\[([^\]]+)\]|\((\([^)]+\))\)|\(([^)]+)\)|\{([^}]+)\})?\s+-->(?:\|([^|]*)\|)?\s+(\w+)(?:\[([^\]]+)\]|\((\([^)]+\))\)|\(([^)]+)\)|\{([^}]+)\})?$/,
     )
     if (edgeMatch) {
-      const [, source, label, target] = edgeMatch
-      ensureFlowNode(nodes, source)
-      ensureFlowNode(nodes, target)
+      const [, sourceId, srcRect, srcCircle, srcRounded, srcDiamond, label, targetId, tgtRect, tgtCircle, tgtRounded, tgtDiamond] = edgeMatch
+
+      // Register source node with its inline shape (if present)
+      if (srcRect) setFlowNode(nodes, sourceId, srcRect, 'rectangle')
+      else if (srcCircle) setFlowNode(nodes, sourceId, srcCircle.slice(1, -1), 'circle')
+      else if (srcRounded) setFlowNode(nodes, sourceId, srcRounded, 'rounded')
+      else if (srcDiamond) setFlowNode(nodes, sourceId, srcDiamond, 'diamond')
+      else ensureFlowNode(nodes, sourceId)
+
+      // Register target node with its inline shape (if present)
+      if (tgtRect) setFlowNode(nodes, targetId, tgtRect, 'rectangle')
+      else if (tgtCircle) setFlowNode(nodes, targetId, tgtCircle.slice(1, -1), 'circle')
+      else if (tgtRounded) setFlowNode(nodes, targetId, tgtRounded, 'rounded')
+      else if (tgtDiamond) setFlowNode(nodes, targetId, tgtDiamond, 'diamond')
+      else ensureFlowNode(nodes, targetId)
+
       edges.push({
-        id: `e-${source}-${target}`,
+        id: `e-${sourceId}-${targetId}`,
         type: 'uml',
-        source,
-        target,
+        source: sourceId,
+        target: targetId,
         label: label || undefined,
         data: {
           edgeType: 'association' as UmlEdgeType,
@@ -185,7 +226,7 @@ function parseFlowchart(code: string): { nodes: DiagramNode[]; edges: DiagramEdg
       continue
     }
 
-    // Node definitions
+    // Standalone node definitions (no edge on this line)
     // Diamond: A{label}
     const diamondMatch = line.match(/^(\w+)\{([^}]+)\}$/)
     if (diamondMatch) {
