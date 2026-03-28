@@ -384,7 +384,7 @@ export function DiagramEditor({ diagram }: Props) {
 
   return (
     <div className="flex flex-col h-screen bg-background">
-      <header className="border-b border-border px-4 py-2 flex items-center justify-between shrink-0 bg-background/80 backdrop-blur-sm">
+      <header className="relative z-[60] border-b border-border px-4 py-2 flex items-center justify-between shrink-0 bg-background/80 backdrop-blur-sm">
         <div className="flex items-center gap-3">
           <Link
             href="/"

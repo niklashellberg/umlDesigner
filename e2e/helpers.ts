@@ -221,3 +221,87 @@ export async function waitForCanvasNodes(
     expect(count).toBeGreaterThanOrEqual(n)
   }).toPass({ timeout: timeoutMs, intervals: [500] })
 }
+
+/**
+ * Wait until the "Saved" indicator appears in the header.
+ * Matches text like "Saved 14:32" (the formatSavedTime output).
+ */
+export async function waitForSaved(page: Page, timeoutMs = 10000): Promise<void> {
+  await expect(page.locator('header').getByText(/Saved \d/)).toBeVisible({ timeout: timeoutMs })
+}
+
+/**
+ * Get all diagram titles from the home page listing.
+ * Returns an array of trimmed title strings.
+ */
+export async function getDiagramListTitles(page: Page): Promise<string[]> {
+  const cards = page.locator('h3')
+  const count = await cards.count()
+  const titles: string[] = []
+  for (let i = 0; i < count; i++) {
+    const text = await cards.nth(i).textContent()
+    if (text) titles.push(text.trim())
+  }
+  return titles
+}
+
+/**
+ * Create a diagram via the API (bypassing the UI) and return its ID.
+ * Useful for setting up test fixtures reliably.
+ */
+export async function createDiagramViaApi(
+  request: APIRequestContext,
+  options: {
+    title?: string
+    type?: 'class' | 'flowchart' | 'activity'
+    code?: string
+  } = {},
+): Promise<string> {
+  const { title = 'Untitled Diagram', type = 'class', code } = options
+
+  const createRes = await request.post('http://127.0.0.1:3000/api/mcp/diagrams', {
+    data: { title, type },
+  })
+  expect(createRes.status()).toBe(201)
+  const { id } = await createRes.json()
+
+  if (code) {
+    const updateRes = await request.put(`http://127.0.0.1:3000/api/mcp/diagrams/${id}`, {
+      data: { code },
+    })
+    expect(updateRes.status()).toBe(200)
+  }
+
+  return id
+}
+
+/**
+ * Delete a diagram via the API.
+ */
+export async function deleteDiagramViaApi(
+  request: APIRequestContext,
+  id: string,
+): Promise<void> {
+  await request.delete(`http://127.0.0.1:3000/api/mcp/diagrams/${id}`)
+}
+
+/**
+ * Navigate back to home from the editor.
+ *
+ * NOTE: Using the "Back" link (client-side navigation) relies on Next.js RSC
+ * cache and may not re-fetch the diagram list from disk.  We therefore do a
+ * full-page navigation to "/" so the server-rendered list is always fresh.
+ */
+export async function goBackToHome(page: Page): Promise<void> {
+  await page.goto('/')
+  await page.waitForLoadState('networkidle')
+}
+
+/**
+ * Extract the diagram ID from a page URL like /diagram/<uuid>
+ */
+export function extractDiagramId(url: string): string {
+  const match = url.match(/\/diagram\/([^/?#]+)/)
+  if (!match) throw new Error(`Cannot extract diagram ID from URL: ${url}`)
+  return match[1]
+}

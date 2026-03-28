@@ -42,14 +42,12 @@ export async function exportPngFile(code: string, filename: string) {
   ctx.scale(scale, scale)
 
   const svgData = new XMLSerializer().serializeToString(renderedSvg)
-  const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' })
-  const svgUrl = URL.createObjectURL(svgBlob)
+  const svgUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgData)
 
   return new Promise<void>((resolve, reject) => {
     const img = new Image()
     img.onload = () => {
       ctx.drawImage(img, 0, 0, bbox.width, bbox.height)
-      URL.revokeObjectURL(svgUrl)
       document.body.removeChild(container)
 
       canvas.toBlob((blob) => {
@@ -70,7 +68,6 @@ export async function exportPngFile(code: string, filename: string) {
       }, 'image/png')
     }
     img.onerror = () => {
-      URL.revokeObjectURL(svgUrl)
       document.body.removeChild(container)
       reject(new Error('Failed to load SVG as image'))
     }
