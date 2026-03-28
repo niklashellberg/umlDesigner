@@ -52,6 +52,19 @@ export interface ForkJoinNodeData {
   [key: string]: unknown
 }
 
+export interface StateNodeData {
+  [key: string]: unknown
+  label: string
+  isInitial?: boolean
+  isFinal?: boolean
+}
+
+export interface EntityNodeData {
+  [key: string]: unknown
+  label: string
+  attributes: string[]
+}
+
 export type UmlEdgeType =
   | 'association'
   | 'inheritance'

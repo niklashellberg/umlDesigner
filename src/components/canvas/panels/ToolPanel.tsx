@@ -60,6 +60,43 @@ const flowchartTools: ToolItem[] = [
   },
 ]
 
+const stateTools: ToolItem[] = [
+  {
+    type: 'state',
+    label: 'State',
+    icon: (
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <rect x="3" y="5" width="18" height="14" rx="7" />
+      </svg>
+    ),
+    data: { label: 'State', isInitial: false, isFinal: false },
+  },
+  {
+    type: 'process',
+    label: 'Choice',
+    icon: (
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <path d="M12 3 L21 12 L12 21 L3 12 Z" />
+      </svg>
+    ),
+    data: { label: 'Choice', shape: 'diamond' },
+  },
+]
+
+const erTools: ToolItem[] = [
+  {
+    type: 'entity',
+    label: 'Entity',
+    icon: (
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <line x1="3" y1="9" x2="21" y2="9" />
+      </svg>
+    ),
+    data: { label: 'Entity', attributes: [] },
+  },
+]
+
 const activityTools: ToolItem[] = [
   {
     type: 'start',
@@ -133,6 +170,10 @@ function getToolsForType(diagramType: DiagramType): ToolItem[] {
       return flowchartTools
     case 'activity':
       return activityTools
+    case 'state':
+      return stateTools
+    case 'er':
+      return erTools
     default:
       return [...classTools, ...flowchartTools]
   }

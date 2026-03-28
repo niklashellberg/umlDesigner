@@ -8,6 +8,9 @@ const typeIcons: Record<string, string> = {
   class: '\u25A1',
   sequence: '\u2192',
   flowchart: '\u25C7',
+  activity: '\u2261',
+  state: '\u25CB',
+  er: '\u229E',
 }
 
 interface Props {

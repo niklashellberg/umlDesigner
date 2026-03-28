@@ -9,7 +9,7 @@ import {
 } from '@/lib/storage/diagrams'
 import { pushCodeToYjs } from '@/lib/mcp/yjs-bridge'
 
-const diagramTypeSchema = z.enum(['class', 'sequence', 'flowchart', 'activity'])
+const diagramTypeSchema = z.enum(['class', 'sequence', 'flowchart', 'activity', 'state', 'er'])
 
 export function registerDiagramTools(server: McpServer): void {
   server.registerTool(
@@ -31,7 +31,7 @@ export function registerDiagramTools(server: McpServer): void {
       description: 'Create a new diagram with a default Mermaid template.',
       inputSchema: {
         title: z.string().min(1).describe('Human-readable name for the diagram'),
-        type: diagramTypeSchema.describe('Diagram type: class, sequence, flowchart, or activity'),
+        type: diagramTypeSchema.describe('Diagram type: class, sequence, flowchart, activity, state, or er'),
       },
     },
     async ({ title, type }) => {

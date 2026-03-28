@@ -3,7 +3,7 @@ import { mermaidToFlow } from '@/lib/sync/mermaid-to-flow'
 import { flowToMermaid } from '@/lib/sync/flow-to-mermaid'
 import { syncToCode, syncFromCode } from '@/lib/sync/sync-engine'
 import type { DiagramNode, DiagramEdge } from '@/lib/types/diagram'
-import type { ClassNodeData, ProcessNodeData, ActivityNodeData, UmlEdgeData } from '@/lib/types/uml'
+import type { ClassNodeData, ProcessNodeData, ActivityNodeData, StateNodeData, EntityNodeData, UmlEdgeData } from '@/lib/types/uml'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -20,6 +20,14 @@ function processData(node: DiagramNode): ProcessNodeData {
 
 function activityData(node: DiagramNode): ActivityNodeData {
   return node.data as unknown as ActivityNodeData
+}
+
+function stateData(node: DiagramNode): StateNodeData {
+  return node.data as unknown as StateNodeData
+}
+
+function entityData(node: DiagramNode): EntityNodeData {
+  return node.data as unknown as EntityNodeData
 }
 
 function edgeData(edge: DiagramEdge): UmlEdgeData {
@@ -940,5 +948,326 @@ class X {
     const positions = new Map([['X', { x: 42, y: 99 }]])
     const result = syncFromCode(code, 'class', positions)
     expect(result.nodes[0].position).toEqual({ x: 42, y: 99 })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Group 9: mermaidToFlow - State Diagrams
+// ---------------------------------------------------------------------------
+
+describe('mermaidToFlow - State Diagrams', () => {
+  it('parses empty stateDiagram-v2 to 0 nodes', () => {
+    const result = mermaidToFlow('stateDiagram-v2', 'state')
+    expect(result.nodes).toHaveLength(0)
+    expect(result.edges).toHaveLength(0)
+  })
+
+  it('parses 2 states with transition', () => {
+    const code = `stateDiagram-v2
+Idle
+Moving
+Idle --> Moving`
+    const result = mermaidToFlow(code, 'state')
+
+    const stateNodes = result.nodes.filter((n) => n.type === 'state')
+    expect(stateNodes).toHaveLength(2)
+    expect(result.edges).toHaveLength(1)
+    expect(result.edges[0].source).toBe('Idle')
+    expect(result.edges[0].target).toBe('Moving')
+  })
+
+  it('parses initial [*] --> State creates start node and edge', () => {
+    const code = `stateDiagram-v2
+[*] --> Idle`
+    const result = mermaidToFlow(code, 'state')
+
+    const startNode = result.nodes.find((n) => n.type === 'start')
+    expect(startNode).toBeDefined()
+    expect(startNode!.id).toBe('__start__')
+
+    const stateNode = result.nodes.find((n) => n.type === 'state')
+    expect(stateNode).toBeDefined()
+
+    expect(result.edges).toHaveLength(1)
+    expect(result.edges[0].source).toBe('__start__')
+    expect(result.edges[0].target).toBe('Idle')
+  })
+
+  it('parses final State --> [*] creates end node and edge', () => {
+    const code = `stateDiagram-v2
+Done --> [*]`
+    const result = mermaidToFlow(code, 'state')
+
+    const endNode = result.nodes.find((n) => n.type === 'end')
+    expect(endNode).toBeDefined()
+    expect(endNode!.id).toBe('__end__')
+
+    expect(result.edges).toHaveLength(1)
+    expect(result.edges[0].source).toBe('Done')
+    expect(result.edges[0].target).toBe('__end__')
+  })
+
+  it('parses transition with label', () => {
+    const code = `stateDiagram-v2
+Idle --> Moving : start engine`
+    const result = mermaidToFlow(code, 'state')
+
+    expect(result.edges).toHaveLength(1)
+    expect(result.edges[0].label).toBe('start engine')
+  })
+
+  it('parses state with description', () => {
+    const code = `stateDiagram-v2
+Idle : Waiting for input`
+    const result = mermaidToFlow(code, 'state')
+
+    const stateNode = result.nodes.find((n) => n.type === 'state')
+    expect(stateNode).toBeDefined()
+    expect(stateData(stateNode!).label).toBe('Waiting for input')
+  })
+
+  it('full example with 3 states and transitions', () => {
+    const code = `stateDiagram-v2
+[*] --> Idle
+Idle --> Processing : submit
+Processing --> Done : complete
+Done --> [*]`
+    const result = mermaidToFlow(code, 'state')
+
+    const startNode = result.nodes.find((n) => n.type === 'start')
+    const endNode = result.nodes.find((n) => n.type === 'end')
+    const stateNodes = result.nodes.filter((n) => n.type === 'state')
+
+    expect(startNode).toBeDefined()
+    expect(endNode).toBeDefined()
+    expect(stateNodes).toHaveLength(3)
+    expect(result.edges).toHaveLength(4)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Group 10: mermaidToFlow - ER Diagrams
+// ---------------------------------------------------------------------------
+
+describe('mermaidToFlow - ER Diagrams', () => {
+  it('parses empty erDiagram to 0 nodes', () => {
+    const result = mermaidToFlow('erDiagram', 'er')
+    expect(result.nodes).toHaveLength(0)
+    expect(result.edges).toHaveLength(0)
+  })
+
+  it('parses entity with attributes', () => {
+    const code = `erDiagram
+CUSTOMER {
+  int id PK
+  string name
+  string email
+}`
+    const result = mermaidToFlow(code, 'er')
+
+    expect(result.nodes).toHaveLength(1)
+    const node = result.nodes[0]
+    expect(node.type).toBe('entity')
+    expect(entityData(node).label).toBe('CUSTOMER')
+    expect(entityData(node).attributes).toEqual([
+      'int id PK',
+      'string name',
+      'string email',
+    ])
+  })
+
+  it('parses 2 entities with relationship', () => {
+    const code = `erDiagram
+CUSTOMER {
+  int id PK
+}
+ORDER {
+  int id PK
+}
+CUSTOMER ||--o{ ORDER : places`
+    const result = mermaidToFlow(code, 'er')
+
+    expect(result.nodes).toHaveLength(2)
+    expect(result.edges).toHaveLength(1)
+    expect(result.edges[0].source).toBe('CUSTOMER')
+    expect(result.edges[0].target).toBe('ORDER')
+  })
+
+  it('parses relationship with label', () => {
+    const code = `erDiagram
+CUSTOMER ||--o{ ORDER : places`
+    const result = mermaidToFlow(code, 'er')
+
+    expect(result.edges).toHaveLength(1)
+    expect(result.edges[0].label).toBe('places')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Group 11: flowToMermaid - State Diagrams
+// ---------------------------------------------------------------------------
+
+describe('flowToMermaid - State Diagrams', () => {
+  it('generates stateDiagram-v2 header with state declarations', () => {
+    const nodes: DiagramNode[] = [
+      {
+        id: 'Idle',
+        type: 'state',
+        position: { x: 0, y: 0 },
+        data: { label: 'Idle' },
+      },
+      {
+        id: 'Moving',
+        type: 'state',
+        position: { x: 0, y: 0 },
+        data: { label: 'Moving' },
+      },
+    ]
+    const result = flowToMermaid(nodes, [], 'state')
+    expect(result).toContain('stateDiagram-v2')
+    expect(result).toContain('Idle')
+    expect(result).toContain('Moving')
+  })
+
+  it('generates [*] --> State and State --> [*] for start/end nodes', () => {
+    const nodes: DiagramNode[] = [
+      { id: '__start__', type: 'start', position: { x: 0, y: 0 }, data: {} },
+      { id: 'Active', type: 'state', position: { x: 0, y: 0 }, data: { label: 'Active' } },
+      { id: '__end__', type: 'end', position: { x: 0, y: 0 }, data: {} },
+    ]
+    const edges: DiagramEdge[] = [
+      { id: 'e1', type: 'uml', source: '__start__', target: 'Active', data: { edgeType: 'association', lineStyle: 'solid' } },
+      { id: 'e2', type: 'uml', source: 'Active', target: '__end__', data: { edgeType: 'association', lineStyle: 'solid' } },
+    ]
+    const result = flowToMermaid(nodes, edges, 'state')
+    expect(result).toContain('[*] --> Active')
+    expect(result).toContain('Active --> [*]')
+  })
+
+  it('generates transitions with labels', () => {
+    const nodes: DiagramNode[] = [
+      { id: 'A', type: 'state', position: { x: 0, y: 0 }, data: { label: 'A' } },
+      { id: 'B', type: 'state', position: { x: 0, y: 0 }, data: { label: 'B' } },
+    ]
+    const edges: DiagramEdge[] = [
+      { id: 'e1', type: 'uml', source: 'A', target: 'B', label: 'trigger', data: { edgeType: 'association', lineStyle: 'solid' } },
+    ]
+    const result = flowToMermaid(nodes, edges, 'state')
+    expect(result).toContain('A --> B : trigger')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Group 12: flowToMermaid - ER Diagrams
+// ---------------------------------------------------------------------------
+
+describe('flowToMermaid - ER Diagrams', () => {
+  it('generates erDiagram with entity blocks and attributes', () => {
+    const nodes: DiagramNode[] = [
+      {
+        id: 'USER',
+        type: 'entity',
+        position: { x: 0, y: 0 },
+        data: { label: 'USER', attributes: ['int id PK', 'string name'] },
+      },
+    ]
+    const result = flowToMermaid(nodes, [], 'er')
+    expect(result).toContain('erDiagram')
+    expect(result).toContain('USER {')
+    expect(result).toContain('int id PK')
+    expect(result).toContain('string name')
+    expect(result).toContain('}')
+  })
+
+  it('generates entity relationships with correct notation', () => {
+    const nodes: DiagramNode[] = [
+      { id: 'CUSTOMER', type: 'entity', position: { x: 0, y: 0 }, data: { label: 'CUSTOMER', attributes: [] } },
+      { id: 'ORDER', type: 'entity', position: { x: 0, y: 0 }, data: { label: 'ORDER', attributes: [] } },
+    ]
+    const edges: DiagramEdge[] = [
+      {
+        id: 'e1',
+        type: 'uml',
+        source: 'CUSTOMER',
+        target: 'ORDER',
+        label: 'places',
+        data: { edgeType: 'association', lineStyle: 'solid', cardinality: '||--o{' },
+      },
+    ]
+    const result = flowToMermaid(nodes, edges, 'er')
+    expect(result).toContain('CUSTOMER ||--o{ ORDER : places')
+  })
+
+  it('uses default cardinality when none specified', () => {
+    const nodes: DiagramNode[] = [
+      { id: 'A', type: 'entity', position: { x: 0, y: 0 }, data: { label: 'A', attributes: [] } },
+      { id: 'B', type: 'entity', position: { x: 0, y: 0 }, data: { label: 'B', attributes: [] } },
+    ]
+    const edges: DiagramEdge[] = [
+      {
+        id: 'e1',
+        type: 'uml',
+        source: 'A',
+        target: 'B',
+        label: 'links',
+        data: { edgeType: 'association', lineStyle: 'solid' },
+      },
+    ]
+    const result = flowToMermaid(nodes, edges, 'er')
+    expect(result).toContain('A ||--|| B : links')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Group 13: Round-trip tests - State and ER Diagrams
+// ---------------------------------------------------------------------------
+
+describe('Round-trip: State Diagrams', () => {
+  it('preserves states and transitions through round-trip', () => {
+    const original = `stateDiagram-v2
+[*] --> Idle
+Idle --> Processing : submit
+Processing --> Done : complete
+Done --> [*]`
+
+    const { nodes, edges } = mermaidToFlow(original, 'state')
+    const regenerated = flowToMermaid(nodes, edges, 'state')
+    const { nodes: nodes2, edges: edges2 } = mermaidToFlow(regenerated, 'state')
+
+    // Should preserve the same number of state nodes
+    const stateNodes1 = nodes.filter((n) => n.type === 'state')
+    const stateNodes2 = nodes2.filter((n) => n.type === 'state')
+    expect(stateNodes2).toHaveLength(stateNodes1.length)
+
+    // Should preserve edges
+    expect(edges2).toHaveLength(edges.length)
+  })
+})
+
+describe('Round-trip: ER Diagrams', () => {
+  it('preserves entities and relationships through round-trip', () => {
+    const original = `erDiagram
+CUSTOMER {
+  int id PK
+  string name
+}
+ORDER {
+  int id PK
+  date created
+}
+CUSTOMER ||--o{ ORDER : places`
+
+    const { nodes, edges } = mermaidToFlow(original, 'er')
+    const regenerated = flowToMermaid(nodes, edges, 'er')
+    const { nodes: nodes2, edges: edges2 } = mermaidToFlow(regenerated, 'er')
+
+    expect(nodes2).toHaveLength(nodes.length)
+    expect(edges2).toHaveLength(edges.length)
+
+    // Verify attributes are preserved
+    const customer = nodes2.find((n) => entityData(n).label === 'CUSTOMER')
+    expect(customer).toBeDefined()
+    expect(entityData(customer!).attributes).toContain('int id PK')
+    expect(entityData(customer!).attributes).toContain('string name')
   })
 })

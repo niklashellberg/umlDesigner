@@ -1,5 +1,5 @@
 import type { DiagramNode, DiagramEdge, DiagramType } from '@/lib/types/diagram'
-import type { ClassNodeData, InterfaceNodeData, ProcessNodeData, ActivityNodeData, SwimlaneNodeData, UmlEdgeData } from '@/lib/types/uml'
+import type { ClassNodeData, InterfaceNodeData, ProcessNodeData, ActivityNodeData, SwimlaneNodeData, StateNodeData, EntityNodeData, UmlEdgeData } from '@/lib/types/uml'
 
 /**
  * Converts React Flow nodes and edges into Mermaid diagram syntax.
@@ -17,6 +17,10 @@ export function flowToMermaid(
       return flowchartToMermaid(nodes, edges)
     case 'activity':
       return activityToMermaid(nodes, edges)
+    case 'state':
+      return stateToMermaid(nodes, edges)
+    case 'er':
+      return erToMermaid(nodes, edges)
     default:
       return ''
   }
@@ -236,6 +240,78 @@ function activityNodeToMermaid(node: DiagramNode): string {
     default:
       return `${id}[${node.type}]`
   }
+}
+
+function stateToMermaid(nodes: DiagramNode[], edges: DiagramEdge[]): string {
+  const lines: string[] = ['stateDiagram-v2']
+
+  // Emit state declarations (skip start/end pseudo-nodes)
+  for (const node of nodes) {
+    if (node.type === 'state') {
+      const data = node.data as unknown as StateNodeData
+      const id = sanitizeId(node.id)
+      const label = data.label || id
+      // Only emit description if it differs from the ID
+      if (label !== id) {
+        lines.push(`  ${id} : ${label}`)
+      } else {
+        lines.push(`  ${id}`)
+      }
+    }
+  }
+
+  // Emit transitions
+  for (const edge of edges) {
+    const sourceNode = nodes.find((n) => n.id === edge.source)
+    const targetNode = nodes.find((n) => n.id === edge.target)
+    if (!sourceNode || !targetNode) continue
+
+    const sourceStr = sourceNode.type === 'start' ? '[*]' : sanitizeId(edge.source)
+    const targetStr = targetNode.type === 'end' ? '[*]' : sanitizeId(edge.target)
+    const labelStr = edge.label ? ` : ${edge.label}` : ''
+
+    lines.push(`  ${sourceStr} --> ${targetStr}${labelStr}`)
+  }
+
+  return lines.join('\n')
+}
+
+function erToMermaid(nodes: DiagramNode[], edges: DiagramEdge[]): string {
+  const lines: string[] = ['erDiagram']
+
+  // Emit entity blocks
+  for (const node of nodes) {
+    if (node.type !== 'entity') continue
+    const data = node.data as unknown as EntityNodeData
+    const name = sanitizeId(data.label)
+
+    lines.push(`  ${name} {`)
+    for (const attr of data.attributes) {
+      lines.push(`    ${attr}`)
+    }
+    lines.push('  }')
+  }
+
+  // Emit relationships
+  for (const edge of edges) {
+    const sourceNode = nodes.find((n) => n.id === edge.source)
+    const targetNode = nodes.find((n) => n.id === edge.target)
+    if (!sourceNode || !targetNode) continue
+
+    const sourceData = sourceNode.data as unknown as EntityNodeData
+    const targetData = targetNode.data as unknown as EntityNodeData
+    const sourceName = sanitizeId(sourceData.label)
+    const targetName = sanitizeId(targetData.label)
+
+    // Use stored cardinality notation from edge data, default to ||--||
+    const edgeDataObj = edge.data as unknown as Record<string, unknown>
+    const cardinality = (edgeDataObj?.cardinality as string) || '||--||'
+    const label = edge.label || 'relates'
+
+    lines.push(`  ${sourceName} ${cardinality} ${targetName} : ${label}`)
+  }
+
+  return lines.join('\n')
 }
 
 function sanitizeId(id: string): string {
