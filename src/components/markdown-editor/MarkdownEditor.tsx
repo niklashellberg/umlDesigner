@@ -53,6 +53,20 @@ export function MarkdownEditor({ yText, provider }: Props) {
   const [editorReady, setEditorReady] = useState(false)
   const bindingRef = useRef<{ destroy: () => void } | null>(null)
 
+  // When switching away from Edit mode, destroy the binding and reset
+  // editorReady so that the Yjs binding effect re-runs when the Monaco
+  // editor remounts on switching back to Edit.
+  useEffect(() => {
+    if (viewMode !== 'edit') {
+      const b = bindingRef.current as unknown as { _yjsCleanup?: () => void } | null
+      b?._yjsCleanup?.()
+      bindingRef.current?.destroy()
+      bindingRef.current = null
+      editorRef.current = null
+      setEditorReady(false)
+    }
+  }, [viewMode])
+
   // Sync store changes to Monaco when no Yjs binding is active
   const prevMarkdownRef = useRef(markdown)
   useEffect(() => {
@@ -173,6 +187,7 @@ export function MarkdownEditor({ yText, provider }: Props) {
           <Editor
             defaultLanguage="markdown"
             value={yText ? undefined : markdown}
+            defaultValue={markdown}
             onChange={handleChange}
             onMount={handleMount}
             theme="vs-dark"

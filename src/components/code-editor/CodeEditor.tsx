@@ -240,6 +240,9 @@ export function CodeEditor({ yText, provider }: Props = {}) {
         // editor via Y.Text. When yText is null (offline/not yet connected),
         // controlled value={code} keeps the editor in sync with the store.
         value={yText ? undefined : code}
+        // Ensure the editor starts with content even before the async
+        // MonacoBinding import completes (avoids empty-editor flash on remount).
+        defaultValue={code}
         onChange={handleChange}
         onMount={handleMount}
         theme="vs-dark"
