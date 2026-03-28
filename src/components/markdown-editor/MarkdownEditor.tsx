@@ -150,12 +150,28 @@ export function MarkdownEditor({ yText, provider }: Props) {
       lineDecorationsWidth: 0,
       lineNumbersMinChars: 3,
       overviewRulerBorder: false,
-      // Disable autocomplete in markdown — it steals space after # etc.
+      // Disable all auto-formatting for markdown — prevents Monaco from
+      // inserting "." after "#" + space (list continuation) and other
+      // unwanted transformations.
       quickSuggestions: false,
       suggestOnTriggerCharacters: false,
       acceptSuggestionOnCommitCharacter: false,
       wordBasedSuggestions: 'off',
+      autoClosingBrackets: 'never',
+      autoClosingQuotes: 'never',
+      autoSurround: 'never',
+      formatOnType: false,
+      formatOnPaste: false,
     })
+
+    // Override markdown's onEnterRules that add list continuations
+    // (e.g., "1. " → "2. " on Enter). This prevents the "#. " issue.
+    const model = _editor.getModel()
+    if (model) {
+      monaco.languages.setLanguageConfiguration('markdown', {
+        onEnterRules: [],
+      })
+    }
 
     _editor.focus()
   }, [])
