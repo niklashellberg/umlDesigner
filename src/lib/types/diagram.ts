@@ -1,4 +1,4 @@
-export type DiagramType = 'class' | 'sequence' | 'flowchart' | 'activity'
+export type DiagramType = 'class' | 'sequence' | 'flowchart' | 'activity' | 'state' | 'er'
 
 export interface DiagramMeta {
   id: string

@@ -6,6 +6,8 @@ import { EndNode } from './EndNode'
 import { ActivityNode } from './ActivityNode'
 import { ForkJoinNode } from './ForkJoinNode'
 import { SwimlaneNode } from './SwimlaneNode'
+import { StateNode } from './StateNode'
+import { EntityNode } from './EntityNode'
 
 export const nodeTypes = {
   class: ClassNode,
@@ -16,6 +18,8 @@ export const nodeTypes = {
   activity: ActivityNode,
   forkJoin: ForkJoinNode,
   swimlane: SwimlaneNode,
+  state: StateNode,
+  entity: EntityNode,
 } as const
 
 export {
@@ -27,4 +31,6 @@ export {
   ActivityNode,
   ForkJoinNode,
   SwimlaneNode,
+  StateNode,
+  EntityNode,
 }

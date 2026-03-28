@@ -1,5 +1,5 @@
 import type { DiagramNode, DiagramEdge, DiagramType } from '@/lib/types/diagram'
-import type { ClassNodeData, ProcessNodeData, ActivityNodeData, SwimlaneNodeData, UmlEdgeType } from '@/lib/types/uml'
+import type { ClassNodeData, ProcessNodeData, ActivityNodeData, SwimlaneNodeData, StateNodeData, EntityNodeData, UmlEdgeType } from '@/lib/types/uml'
 
 /**
  * Parses Mermaid diagram code into React Flow nodes and edges.
@@ -26,6 +26,10 @@ export function mermaidToFlow(
     result = parseActivity(trimmed)
   } else if (diagramType === 'flowchart') {
     result = parseFlowchart(trimmed)
+  } else if (diagramType === 'state') {
+    result = parseStateDiagram(trimmed)
+  } else if (diagramType === 'er') {
+    result = parseErDiagram(trimmed)
   } else {
     // No parser for this diagramType — return empty.
     // We intentionally do NOT content-sniff here because the caller
@@ -539,5 +543,237 @@ function ensureActivityNode(nodes: Map<string, DiagramNode>, id: string) {
       position: { x: 0, y: 0 },
       data: data as unknown as Record<string, unknown>,
     })
+  }
+}
+
+// ---------- State Diagram Parsing ----------
+
+function parseStateDiagram(code: string): { nodes: DiagramNode[]; edges: DiagramEdge[] } {
+  const lines = code.split('\n').map((l) => l.trim()).filter(Boolean)
+  const states = new Map<string, DiagramNode>()
+  const edges: DiagramEdge[] = []
+
+  // Track [*] usage: we create unique start/end pseudo-nodes
+  let hasInitial = false
+  let hasFinal = false
+
+  for (const line of lines) {
+    // Skip header
+    if (line === 'stateDiagram-v2' || line === 'stateDiagram') continue
+
+    // Transition: StateA --> StateB : label  OR  [*] --> StateB  OR  StateA --> [*]
+    const transMatch = line.match(/^(\[?\*?\]?[\w]+|\[\*\])\s*-->\s*(\[?\*?\]?[\w]+|\[\*\])(?:\s*:\s*(.+))?$/)
+    if (transMatch) {
+      const [, rawSource, rawTarget, label] = transMatch
+
+      let sourceId: string
+      let targetId: string
+
+      if (rawSource === '[*]') {
+        sourceId = '__start__'
+        hasInitial = true
+      } else {
+        sourceId = rawSource
+        ensureStateNode(states, sourceId)
+      }
+
+      if (rawTarget === '[*]') {
+        targetId = '__end__'
+        hasFinal = true
+      } else {
+        targetId = rawTarget
+        ensureStateNode(states, targetId)
+      }
+
+      edges.push({
+        id: `e-${sourceId}-${targetId}`,
+        type: 'uml',
+        source: sourceId,
+        target: targetId,
+        label: label || undefined,
+        data: {
+          edgeType: 'association' as UmlEdgeType,
+          lineStyle: 'solid' as const,
+        },
+      })
+      continue
+    }
+
+    // State with description: StateName : Description
+    const stateDescMatch = line.match(/^(\w+)\s*:\s*(.+)$/)
+    if (stateDescMatch) {
+      const [, name, description] = stateDescMatch
+      const data: StateNodeData = { label: description }
+      states.set(name, {
+        id: name,
+        type: 'state',
+        position: { x: 0, y: 0 },
+        data: data as unknown as Record<string, unknown>,
+      })
+      continue
+    }
+
+    // Bare state name on a line (single word, not a keyword)
+    const bareStateMatch = line.match(/^(\w+)$/)
+    if (bareStateMatch) {
+      const [, name] = bareStateMatch
+      ensureStateNode(states, name)
+      continue
+    }
+  }
+
+  // Build the final node list
+  const allNodes: DiagramNode[] = []
+
+  if (hasInitial) {
+    allNodes.push({
+      id: '__start__',
+      type: 'start',
+      position: { x: 0, y: 0 },
+      data: {},
+    })
+  }
+
+  if (hasFinal) {
+    allNodes.push({
+      id: '__end__',
+      type: 'end',
+      position: { x: 0, y: 0 },
+      data: {},
+    })
+  }
+
+  for (const node of states.values()) {
+    allNodes.push(node)
+  }
+
+  // Auto-layout with grid positioning
+  const cols = Math.max(2, Math.ceil(Math.sqrt(allNodes.length)))
+  allNodes.forEach((node, idx) => {
+    const col = idx % cols
+    const row = Math.floor(idx / cols)
+    node.position = { x: 50 + col * 200, y: 50 + row * 150 }
+  })
+
+  return { nodes: allNodes, edges }
+}
+
+function ensureStateNode(states: Map<string, DiagramNode>, id: string) {
+  if (!states.has(id)) {
+    const data: StateNodeData = { label: id }
+    states.set(id, {
+      id,
+      type: 'state',
+      position: { x: 0, y: 0 },
+      data: data as unknown as Record<string, unknown>,
+    })
+  }
+}
+
+// ---------- ER Diagram Parsing ----------
+
+function parseErDiagram(code: string): { nodes: DiagramNode[]; edges: DiagramEdge[] } {
+  const lines = code.split('\n').map((l) => l.trim()).filter(Boolean)
+  const entities = new Map<string, EntityNodeData>()
+  const edges: DiagramEdge[] = []
+
+  let currentEntity: string | null = null
+
+  for (const line of lines) {
+    // Skip header
+    if (line === 'erDiagram') continue
+
+    // Entity block start: ENTITY_NAME {
+    const entityStart = line.match(/^(\w+)\s*\{$/)
+    if (entityStart && !currentEntity) {
+      const name = entityStart[1]
+      ensureEntity(entities, name)
+      currentEntity = name
+      continue
+    }
+
+    // Entity block end
+    if (line === '}') {
+      currentEntity = null
+      continue
+    }
+
+    // Inside entity block: attribute lines like "string name" or "int id PK"
+    if (currentEntity) {
+      const entity = entities.get(currentEntity)!
+      entity.attributes.push(line)
+      continue
+    }
+
+    // Relationship: ENTITY1 <cardinality> ENTITY2 : label
+    // Cardinality uses symbols like ||, o{, }o, |{, }|, combined with --
+    // Match pattern: WORD SYMBOLS WORD : LABEL
+    const relMatch = line.match(/^(\w+)\s+([|o}{]{1,2}--[|o}{]{1,2})\s+(\w+)\s*:\s*(.+)$/)
+    if (relMatch) {
+      const [, source, cardinality, target, label] = relMatch
+      ensureEntity(entities, source)
+      ensureEntity(entities, target)
+
+      edges.push({
+        id: `e-${source}-${target}`,
+        type: 'uml',
+        source,
+        target,
+        label: label.trim(),
+        data: {
+          edgeType: 'association' as UmlEdgeType,
+          lineStyle: 'solid' as const,
+          cardinality: cardinality,
+        },
+      })
+      continue
+    }
+
+    // Relationship without label (less common but handle it)
+    const relNoLabelMatch = line.match(/^(\w+)\s+([|o}{]{1,2}--[|o}{]{1,2})\s+(\w+)$/)
+    if (relNoLabelMatch) {
+      const [, source, cardinality, target] = relNoLabelMatch
+      ensureEntity(entities, source)
+      ensureEntity(entities, target)
+
+      edges.push({
+        id: `e-${source}-${target}`,
+        type: 'uml',
+        source,
+        target,
+        data: {
+          edgeType: 'association' as UmlEdgeType,
+          lineStyle: 'solid' as const,
+          cardinality: cardinality,
+        },
+      })
+      continue
+    }
+  }
+
+  // Convert entities to nodes with auto-layout
+  const nodes: DiagramNode[] = []
+  const entityNames = Array.from(entities.keys())
+  const cols = Math.max(2, Math.ceil(Math.sqrt(entityNames.length)))
+
+  entityNames.forEach((name, idx) => {
+    const entity = entities.get(name)!
+    const col = idx % cols
+    const row = Math.floor(idx / cols)
+
+    nodes.push({
+      id: name,
+      type: 'entity',
+      position: { x: 50 + col * 250, y: 50 + row * 200 },
+      data: entity as unknown as Record<string, unknown>,
+    })
+  })
+
+  return { nodes, edges }
+}
+
+function ensureEntity(entities: Map<string, EntityNodeData>, name: string) {
+  if (!entities.has(name)) {
+    entities.set(name, { label: name, attributes: [] })
   }
 }

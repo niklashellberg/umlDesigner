@@ -9,7 +9,7 @@ export function registerUmlPrompts(server: McpServer): void {
         'Generate a new UML diagram from a description. Outputs valid Mermaid code then calls update_diagram_code.',
       argsSchema: {
         diagramType: z
-          .enum(['class', 'sequence', 'flowchart', 'activity'])
+          .enum(['class', 'sequence', 'flowchart', 'activity', 'state', 'er'])
           .describe('Type of UML diagram to create'),
         description: z.string().min(1).describe('Natural language description of what to model'),
       },
@@ -34,7 +34,9 @@ Mermaid syntax reminders:
 - class: starts with \`classDiagram\`
 - sequence: starts with \`sequenceDiagram\`
 - flowchart: starts with \`flowchart TD\` (or LR/BT/RL)
-- activity: starts with \`flowchart TD\` with subgraph swimlanes`,
+- activity: starts with \`flowchart TD\` with subgraph swimlanes
+- state: starts with \`stateDiagram-v2\`
+- er: starts with \`erDiagram\``,
           },
         },
       ],

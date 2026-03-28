@@ -41,6 +41,20 @@ const diagramTypes: DiagramTypeCard[] = [
     icon: '\u2261',
     example: 'Swimlanes, concurrent processes',
   },
+  {
+    type: 'state',
+    label: 'State Diagram',
+    description: 'Model state machines with transitions, initial and final states.',
+    icon: '\u25CB',
+    example: 'Lifecycles, protocol states',
+  },
+  {
+    type: 'er',
+    label: 'ER Diagram',
+    description: 'Design entity-relationship models for databases and data schemas.',
+    icon: '\u229E',
+    example: 'Tables, relationships, attributes',
+  },
 ]
 
 export function EmptyState() {
@@ -73,7 +87,7 @@ export function EmptyState() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 w-full max-w-3xl">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 w-full max-w-4xl">
         {diagramTypes.map(({ type, label, description, icon, example }) => (
           <button
             key={type}
