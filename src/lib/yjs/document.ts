@@ -35,6 +35,10 @@ export function getSharedCode(doc: Y.Doc): Y.Text {
   return doc.getText('code')
 }
 
+export function getSharedMarkdown(doc: Y.Doc): Y.Text {
+  return doc.getText('markdown')
+}
+
 // ----------------------------------------------------------------------------
 // Conversion: Y.Map → plain arrays expected by React Flow / Zustand
 // ----------------------------------------------------------------------------
@@ -87,6 +91,7 @@ export function seedDocFromDiagram(
   nodes: DiagramNode[],
   edges: DiagramEdge[],
   code: string,
+  markdown?: string,
 ): void {
   doc.transact(() => {
     const yMeta = getSharedMeta(doc)
@@ -105,6 +110,13 @@ export function seedDocFromDiagram(
       const yCode = getSharedCode(doc)
       if (yCode.length === 0 && code.length > 0) {
         yCode.insert(0, code)
+      }
+
+      if (markdown) {
+        const yMarkdown = getSharedMarkdown(doc)
+        if (yMarkdown.length === 0 && markdown.length > 0) {
+          yMarkdown.insert(0, markdown)
+        }
       }
     }
   })

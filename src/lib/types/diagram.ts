@@ -31,6 +31,7 @@ export interface Diagram {
   nodes: DiagramNode[]
   edges: DiagramEdge[]
   code: string
+  markdown: string
 }
 
 export interface ContextDocument {

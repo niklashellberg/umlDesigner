@@ -9,6 +9,8 @@ import { useDiagramStore } from '@/lib/store/diagram-store'
 import { CodeEditor } from '@/components/code-editor/CodeEditor'
 import { MermaidPreview } from '@/components/code-editor/MermaidPreview'
 import { ExportMenu } from '@/components/editor/ExportMenu'
+import { CodePanelTabs } from '@/components/editor/CodePanelTabs'
+import { MarkdownEditor } from '@/components/markdown-editor/MarkdownEditor'
 import { Canvas } from '@/components/canvas/Canvas'
 import { CollaborationStatus } from '@/components/editor/CollaborationStatus'
 import { syncToCode, syncFromCode } from '@/lib/sync/sync-engine'
@@ -17,6 +19,7 @@ import { initLocalAwareness } from '@/lib/yjs/awareness'
 import {
   seedDocFromDiagram,
   getSharedCode,
+  getSharedMarkdown,
   getSharedNodes,
   getSharedEdges,
 } from '@/lib/yjs/document'
@@ -31,12 +34,14 @@ interface Props {
 
 export function DiagramEditor({ diagram }: Props) {
   const [mode, setMode] = useState<EditorMode>('split')
+  const [codeTab, setCodeTab] = useState<'code' | 'docs'>('code')
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const titleInputRef = useRef<HTMLInputElement>(null)
 
   // Yjs state
   const [yjsProvider, setYjsProvider] = useState<WebsocketProvider | null>(null)
   const [yText, setYText] = useState<Y.Text | null>(null)
+  const [yMarkdownText, setYMarkdownText] = useState<Y.Text | null>(null)
   const [undoManager, setUndoManager] = useState<Y.UndoManager | null>(null)
   const yjsDestroyRef = useRef<(() => void) | null>(null)
 
@@ -46,6 +51,8 @@ export function DiagramEditor({ diagram }: Props) {
   const setTitle = useDiagramStore((s) => s.setTitle)
   const code = useDiagramStore((s) => s.code)
   const setCode = useDiagramStore((s) => s.setCode)
+  const markdown = useDiagramStore((s) => s.markdown)
+  const setMarkdown = useDiagramStore((s) => s.setMarkdown)
   const storeNodes = useDiagramStore((s) => s.nodes)
   const storeEdges = useDiagramStore((s) => s.edges)
   const setStoreNodes = useDiagramStore((s) => s.setNodes)
@@ -133,9 +140,10 @@ export function DiagramEditor({ diagram }: Props) {
     initLocalAwareness(provider)
 
     const sharedCode = getSharedCode(doc)
+    const sharedMarkdown = getSharedMarkdown(doc)
     const yNodes = getSharedNodes(doc)
     const yEdges = getSharedEdges(doc)
-    const manager = new Y.UndoManager([sharedCode, yNodes, yEdges], {
+    const manager = new Y.UndoManager([sharedCode, sharedMarkdown, yNodes, yEdges], {
       captureTimeout: 500,
     })
 
@@ -161,10 +169,16 @@ export function DiagramEditor({ diagram }: Props) {
       if (text.length === 0 && !yTextExposed) return
       setCode(text)
     }
+    const markdownObserver = () => {
+      const text = sharedMarkdown.toString()
+      if (text.length === 0 && !yTextExposed) return
+      setMarkdown(text)
+    }
 
     yNodes.observe(nodesObserver)
     yEdges.observe(edgesObserver)
     sharedCode.observe(codeObserver)
+    sharedMarkdown.observe(markdownObserver)
 
     // Seed the doc AFTER WS sync to prevent CRDT duplication.
     //
@@ -187,11 +201,22 @@ export function DiagramEditor({ diagram }: Props) {
         })
       }
 
+      // Reset markdown to canonical saved state
+      const diagramMarkdown = diagram.markdown ?? ''
+      const serverMarkdown = sharedMarkdown.toString()
+      if (serverMarkdown !== diagramMarkdown) {
+        doc.transact(() => {
+          if (sharedMarkdown.length > 0) sharedMarkdown.delete(0, sharedMarkdown.length)
+          if (diagramMarkdown.length > 0) sharedMarkdown.insert(0, diagramMarkdown)
+        })
+      }
+
       // Seed meta/nodes/edges only when not yet initialised (guards are inside)
-      seedDocFromDiagram(doc, diagram.meta, diagram.nodes, diagram.edges, diagram.code)
+      seedDocFromDiagram(doc, diagram.meta, diagram.nodes, diagram.edges, diagram.code, diagramMarkdown)
 
       if (!destroyed) {
         setYText(sharedCode)
+        setYMarkdownText(sharedMarkdown)
       }
     }
 
@@ -211,11 +236,13 @@ export function DiagramEditor({ diagram }: Props) {
       yNodes.unobserve(nodesObserver)
       yEdges.unobserve(edgesObserver)
       sharedCode.unobserve(codeObserver)
+      sharedMarkdown.unobserve(markdownObserver)
       manager.destroy()
       destroy()
       yjsDestroyRef.current = null
       setYjsProvider(null)
       setYText(null)
+      setYMarkdownText(null)
       setUndoManager(null)
     }
   // Only re-run when the diagram ID changes (different diagram loaded)
@@ -240,6 +267,23 @@ export function DiagramEditor({ diagram }: Props) {
       if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current)
     }
   }, [code, save, isInitialized])
+
+  // Markdown auto-save debounce
+  const mdSaveDebounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const prevMarkdownRef = useRef(diagram.markdown ?? '')
+
+  useEffect(() => {
+    if (!isInitialized) return
+    if (markdown === prevMarkdownRef.current) return
+    prevMarkdownRef.current = markdown
+
+    if (mdSaveDebounceRef.current) clearTimeout(mdSaveDebounceRef.current)
+    mdSaveDebounceRef.current = setTimeout(() => save(), 1500)
+
+    return () => {
+      if (mdSaveDebounceRef.current) clearTimeout(mdSaveDebounceRef.current)
+    }
+  }, [markdown, save, isInitialized])
 
   // -------------------------------------------------------------------------
   // Canvas change handlers
@@ -474,7 +518,13 @@ export function DiagramEditor({ diagram }: Props) {
       <div className="flex-1 flex overflow-hidden">
         {(mode === 'code' || mode === 'split') && (
           <div className={`flex flex-col ${mode === 'split' ? 'w-1/2 border-r border-border' : 'w-full'}`}>
-            <CodeEditor yText={yText} provider={yjsProvider} />
+            <CodePanelTabs activeTab={codeTab} onTabChange={setCodeTab}>
+              {codeTab === 'code' ? (
+                <CodeEditor yText={yText} provider={yjsProvider} />
+              ) : (
+                <MarkdownEditor yText={yMarkdownText} provider={yjsProvider} />
+              )}
+            </CodePanelTabs>
           </div>
         )}
 

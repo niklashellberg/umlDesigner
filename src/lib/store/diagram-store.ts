@@ -6,6 +6,7 @@ interface DiagramState {
   nodes: DiagramNode[]
   edges: DiagramEdge[]
   code: string
+  markdown: string
   isSaving: boolean
   lastSavedAt: string | null
   isInitialized: boolean
@@ -14,6 +15,7 @@ interface DiagramState {
 interface DiagramActions {
   initialize: (diagram: Diagram) => void
   setCode: (code: string) => void
+  setMarkdown: (markdown: string) => void
   setTitle: (title: string) => void
   setNodes: (nodes: DiagramNode[]) => void
   setEdges: (edges: DiagramEdge[]) => void
@@ -28,6 +30,7 @@ export const useDiagramStore = create<DiagramStore>((set, get) => ({
   nodes: [],
   edges: [],
   code: '',
+  markdown: '',
   isSaving: false,
   lastSavedAt: null,
   isInitialized: false,
@@ -38,6 +41,7 @@ export const useDiagramStore = create<DiagramStore>((set, get) => ({
       nodes: diagram.nodes,
       edges: diagram.edges,
       code: diagram.code,
+      markdown: diagram.markdown ?? '',
       isInitialized: true,
       lastSavedAt: diagram.meta.updatedAt,
     })
@@ -45,6 +49,10 @@ export const useDiagramStore = create<DiagramStore>((set, get) => ({
 
   setCode: (code: string) => {
     set({ code })
+  },
+
+  setMarkdown: (markdown: string) => {
+    set({ markdown })
   },
 
   setTitle: (title: string) => {
@@ -62,7 +70,7 @@ export const useDiagramStore = create<DiagramStore>((set, get) => ({
   },
 
   save: async () => {
-    const { meta, code, nodes, edges } = get()
+    const { meta, code, markdown, nodes, edges } = get()
     if (!meta) return
 
     set({ isSaving: true })
@@ -70,7 +78,7 @@ export const useDiagramStore = create<DiagramStore>((set, get) => ({
       const res = await fetch(`/api/mcp/diagrams/${meta.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: meta.title, code, nodes, edges }),
+        body: JSON.stringify({ title: meta.title, code, markdown, nodes, edges }),
       })
 
       if (res.ok) {
