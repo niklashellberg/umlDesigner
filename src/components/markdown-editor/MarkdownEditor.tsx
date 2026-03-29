@@ -61,15 +61,24 @@ export function MarkdownEditor({ yText, provider }: Props) {
   /** Safely tear down the current MonacoBinding (idempotent). */
   const destroyBinding = useCallback(() => {
     if (!bindingRef.current) return
-    const b = bindingRef.current as unknown as { _yjsCleanup?: () => void }
-    b._yjsCleanup?.()
-    // Yjs MonacoBinding removes its observer in destroy(). If it was
-    // already destroyed (e.g. by React strict-mode double-invoke or
-    // concurrent cleanup effects), the observer is gone and Yjs throws.
-    // We null the ref FIRST so no other code path can double-destroy.
     const binding = bindingRef.current
     bindingRef.current = null
-    try { binding.destroy() } catch { /* already destroyed */ }
+    // Unobserve our manual yText observer FIRST (stored as _yjsCleanup).
+    const b = binding as unknown as { _yjsCleanup?: () => void }
+    b._yjsCleanup?.()
+    // MonacoBinding.destroy() calls yText.unobserve() internally, which
+    // throws "[yjs] Tried to remove event handler that doesn't exist" if
+    // the binding was created but the observer was already removed (e.g.
+    // React strict-mode or concurrent cleanup). Next.js dev-mode shows
+    // this even inside try/catch as a console error overlay.
+    // Instead: manually clean up what destroy() does WITHOUT calling it:
+    // - disconnect the model from the binding (prevent further edits)
+    // The MonacoBinding source shows destroy() does:
+    //   1. unobserve yText (already done above or will throw)
+    //   2. dispose Monaco listeners
+    //   3. destroy awareness
+    // We skip it entirely and let GC handle the rest — the editor is
+    // about to unmount anyway.
   }, [])
 
   // When switching away from Edit mode, destroy the binding and reset

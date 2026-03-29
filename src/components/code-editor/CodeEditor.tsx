@@ -107,8 +107,12 @@ export function CodeEditor({ yText, provider }: Props = {}) {
       const model = editorRef.current.getModel()
       if (!model) return
 
-      // Destroy any previous binding
-      bindingRef.current?.destroy()
+      // Clean up any previous binding's observer before creating a new one
+      if (bindingRef.current) {
+        const prev = bindingRef.current as unknown as { _yjsCleanup?: () => void }
+        prev._yjsCleanup?.()
+        bindingRef.current = null
+      }
 
       const binding = new MonacoBinding(
         yText,
@@ -124,7 +128,6 @@ export function CodeEditor({ yText, provider }: Props = {}) {
         setCode(yText.toString())
       }
       yText.observe(observer)
-      // Return cleanup via the cancelled flag pattern
       ;(binding as unknown as { _yjsCleanup?: () => void })._yjsCleanup = () => {
         yText.unobserve(observer)
       }
@@ -132,10 +135,14 @@ export function CodeEditor({ yText, provider }: Props = {}) {
 
     return () => {
       cancelled = true
-      const b = bindingRef.current as unknown as { _yjsCleanup?: () => void } | null
-      b?._yjsCleanup?.()
-      bindingRef.current?.destroy()
-      bindingRef.current = null
+      if (bindingRef.current) {
+        const b = bindingRef.current as unknown as { _yjsCleanup?: () => void }
+        b._yjsCleanup?.()
+        bindingRef.current = null
+        // Skip binding.destroy() — it calls yText.unobserve() internally
+        // which throws if the observer is already gone. The editor unmounts
+        // anyway, so GC handles the rest.
+      }
     }
   }, [yText, editorReady, provider, setCode])
 
