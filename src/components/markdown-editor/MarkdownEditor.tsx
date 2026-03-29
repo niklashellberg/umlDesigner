@@ -1,42 +1,11 @@
 'use client'
 
 import { useCallback, useRef, useEffect, useState } from 'react'
-import Editor, { type OnMount } from '@monaco-editor/react'
 import { useDiagramStore } from '@/lib/store/diagram-store'
 import { copyAsHtml, copyAsMarkdown } from '@/lib/export/clipboard'
 import type { WebsocketProvider } from 'y-websocket'
 import type * as Y from 'yjs'
 import { MarkdownPreview } from './MarkdownPreview'
-
-type MonacoEditorInstance = Parameters<OnMount>[0]
-
-const THEME = {
-  base: 'vs-dark' as const,
-  inherit: true,
-  rules: [],
-  colors: {
-    'editor.background': '#0f0f13',
-    'editor.foreground': '#e4e4e7',
-    'editor.lineHighlightBackground': '#1a1a2240',
-    'editor.selectionBackground': '#6366f140',
-    'editor.inactiveSelectionBackground': '#6366f120',
-    'editorCursor.foreground': '#6366f1',
-    'editorLineNumber.foreground': '#71717a',
-    'editorLineNumber.activeForeground': '#a1a1aa',
-    'editorIndentGuide.background': '#2e2e3a',
-    'editorIndentGuide.activeBackground': '#6366f180',
-    'editor.selectionHighlightBackground': '#6366f120',
-    'editorWidget.background': '#1a1a22',
-    'editorWidget.border': '#2e2e3a',
-    'input.background': '#1a1a22',
-    'input.border': '#2e2e3a',
-    'scrollbarSlider.background': '#2e2e3a80',
-    'scrollbarSlider.hoverBackground': '#2e2e3aCC',
-    'scrollbarSlider.activeBackground': '#6366f180',
-    'editorOverviewRuler.border': '#0f0f13',
-    'minimap.background': '#0f0f13',
-  },
-}
 
 type ViewMode = 'edit' | 'preview'
 
@@ -54,141 +23,101 @@ export function MarkdownEditor({ yText, provider }: Props) {
 
   const [viewMode, setViewMode] = useState<ViewMode>('edit')
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null)
-  const editorRef = useRef<MonacoEditorInstance | null>(null)
-  const [editorReady, setEditorReady] = useState(false)
-  const bindingRef = useRef<{ destroy: () => void } | null>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  /** Safely tear down the current MonacoBinding (idempotent). */
-  const destroyBinding = useCallback(() => {
-    if (!bindingRef.current) return
-    const binding = bindingRef.current
-    bindingRef.current = null
-    // Unobserve our manual yText observer FIRST (stored as _yjsCleanup).
-    const b = binding as unknown as { _yjsCleanup?: () => void }
-    b._yjsCleanup?.()
-    // MonacoBinding.destroy() calls yText.unobserve() internally, which
-    // throws "[yjs] Tried to remove event handler that doesn't exist" if
-    // the binding was created but the observer was already removed (e.g.
-    // React strict-mode or concurrent cleanup). Next.js dev-mode shows
-    // this even inside try/catch as a console error overlay.
-    // Instead: manually clean up what destroy() does WITHOUT calling it:
-    // - disconnect the model from the binding (prevent further edits)
-    // The MonacoBinding source shows destroy() does:
-    //   1. unobserve yText (already done above or will throw)
-    //   2. dispose Monaco listeners
-    //   3. destroy awareness
-    // We skip it entirely and let GC handle the rest — the editor is
-    // about to unmount anyway.
-  }, [])
-
-  // When switching away from Edit mode, destroy the binding and reset
-  // editorReady so that the Yjs binding effect re-runs when the Monaco
-  // editor remounts on switching back to Edit.
+  // Keep textarea in sync with store (for external updates / Yjs)
+  const isLocalChange = useRef(false)
   useEffect(() => {
-    if (viewMode !== 'edit') {
-      destroyBinding()
-      editorRef.current = null
-      setEditorReady(false)
+    if (isLocalChange.current) {
+      isLocalChange.current = false
+      return
     }
-  }, [viewMode, destroyBinding])
-
-  // Sync store changes to Monaco when no Yjs binding is active
-  const prevMarkdownRef = useRef(markdown)
-  useEffect(() => {
-    if (markdown === prevMarkdownRef.current) return
-    prevMarkdownRef.current = markdown
-    if (bindingRef.current) return
-    const editor = editorRef.current
-    if (!editor) return
-    const model = editor.getModel()
-    if (!model) return
-    const currentValue = model.getValue()
-    if (currentValue !== markdown) {
-      model.setValue(markdown)
+    if (textareaRef.current && textareaRef.current.value !== markdown) {
+      textareaRef.current.value = markdown
     }
   }, [markdown])
 
-  // Yjs MonacoBinding
+  // Yjs binding: observe Y.Text and push changes to store + textarea
   useEffect(() => {
-    if (!yText || !editorReady || !editorRef.current) return
+    if (!yText) return
 
-    let cancelled = false
-    import('y-monaco').then(({ MonacoBinding }) => {
-      if (cancelled || !editorRef.current) return
-
-      const model = editorRef.current.getModel()
-      if (!model) return
-
-      destroyBinding()
-
-      const binding = new MonacoBinding(
-        yText,
-        model,
-        new Set([editorRef.current]),
-        provider?.awareness ?? undefined,
-      )
-      bindingRef.current = binding
-
-      const observer = () => {
-        setMarkdown(yText.toString())
+    const observer = () => {
+      const text = yText.toString()
+      setMarkdown(text)
+      if (textareaRef.current && textareaRef.current.value !== text) {
+        // Preserve cursor position
+        const start = textareaRef.current.selectionStart
+        const end = textareaRef.current.selectionEnd
+        textareaRef.current.value = text
+        textareaRef.current.setSelectionRange(start, end)
       }
-      yText.observe(observer)
-      ;(binding as unknown as { _yjsCleanup?: () => void })._yjsCleanup = () => {
-        yText.unobserve(observer)
-      }
-    })
-
-    return () => {
-      cancelled = true
-      destroyBinding()
     }
-  }, [yText, editorReady, provider, setMarkdown, destroyBinding])
+    yText.observe(observer)
+    return () => yText.unobserve(observer)
+  }, [yText, setMarkdown])
 
-  const handleMount: OnMount = useCallback((_editor, monaco) => {
-    editorRef.current = _editor
-    setEditorReady(true)
+  const handleInput = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      const value = e.target.value
+      isLocalChange.current = true
+      setMarkdown(value)
 
-    monaco.editor.defineTheme('uml-dark-md', THEME)
-    monaco.editor.setTheme('uml-dark-md')
+      // Push to Yjs if available
+      if (yText) {
+        const currentText = yText.toString()
+        if (currentText !== value) {
+          yText.doc?.transact(() => {
+            yText.delete(0, yText.length)
+            yText.insert(0, value)
+          })
+        }
+      }
+    },
+    [yText, setMarkdown],
+  )
 
-    _editor.updateOptions({
-      fontFamily: 'var(--font-geist-mono), "Cascadia Code", "Fira Code", monospace',
-      fontSize: 14,
-      lineHeight: 22,
-      padding: { top: 16, bottom: 16 },
-      minimap: { enabled: false },
-      scrollBeyondLastLine: false,
-      renderLineHighlight: 'line',
-      cursorBlinking: 'smooth',
-      cursorSmoothCaretAnimation: 'on',
-      smoothScrolling: true,
-      wordWrap: 'on',
-      tabSize: 2,
-      insertSpaces: true,
-      folding: false,
-      glyphMargin: false,
-      lineDecorationsWidth: 0,
-      lineNumbersMinChars: 3,
-      overviewRulerBorder: false,
-      quickSuggestions: false,
-      suggestOnTriggerCharacters: false,
-      acceptSuggestionOnCommitCharacter: false,
-      wordBasedSuggestions: 'off',
-      autoClosingBrackets: 'never',
-      autoClosingQuotes: 'never',
-      autoSurround: 'never',
-      formatOnType: false,
-      formatOnPaste: false,
-      autoIndent: 'none',
-    })
+  const insertDiagram = useCallback(() => {
+    const ta = textareaRef.current
+    if (!ta) return
+    const start = ta.selectionStart
+    const before = ta.value.slice(0, start)
+    const after = ta.value.slice(ta.selectionEnd)
+    const insert = '\n\n{{diagram}}\n\n'
+    const newValue = before + insert + after
+    ta.value = newValue
+    ta.selectionStart = ta.selectionEnd = start + insert.length
+    // Trigger change
+    isLocalChange.current = true
+    setMarkdown(newValue)
+    if (yText) {
+      yText.doc?.transact(() => {
+        yText.delete(0, yText.length)
+        yText.insert(0, newValue)
+      })
+    }
+    ta.focus()
+  }, [yText, setMarkdown])
 
-    _editor.focus()
-  }, [])
-
-  const handleChange = useCallback(
-    (value: string | undefined) => {
-      if (!yText && value !== undefined) {
-        setMarkdown(value)
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      // Tab inserts 2 spaces instead of moving focus
+      if (e.key === 'Tab') {
+        e.preventDefault()
+        const ta = e.currentTarget
+        const start = ta.selectionStart
+        const before = ta.value.slice(0, start)
+        const after = ta.value.slice(ta.selectionEnd)
+        const newValue = before + '  ' + after
+        ta.value = newValue
+        ta.selectionStart = ta.selectionEnd = start + 2
+        isLocalChange.current = true
+        setMarkdown(newValue)
+        if (yText) {
+          yText.doc?.transact(() => {
+            yText.delete(0, yText.length)
+            yText.insert(0, newValue)
+          })
+        }
       }
     },
     [yText, setMarkdown],
@@ -199,23 +128,7 @@ export function MarkdownEditor({ yText, provider }: Props) {
       <div className="flex items-center justify-between px-3 py-1 border-b border-border bg-background/50 shrink-0">
         <div className="flex items-center gap-2">
           <button
-            onClick={() => {
-              if (viewMode === 'edit' && editorRef.current) {
-                const editor = editorRef.current
-                const position = editor.getPosition()
-                if (position) {
-                  editor.executeEdits('insert-diagram', [{
-                    range: {
-                      startLineNumber: position.lineNumber,
-                      startColumn: position.column,
-                      endLineNumber: position.lineNumber,
-                      endColumn: position.column,
-                    },
-                    text: '\n\n{{diagram}}\n\n',
-                  }])
-                }
-              }
-            }}
+            onClick={insertDiagram}
             disabled={viewMode !== 'edit'}
             className="px-2.5 py-0.5 text-xs font-medium text-muted hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             title="Insert current diagram reference"
@@ -268,24 +181,14 @@ export function MarkdownEditor({ yText, provider }: Props) {
 
       <div className="flex-1 overflow-hidden">
         {viewMode === 'edit' ? (
-          <Editor
-            defaultLanguage="plaintext"
-            value={yText ? undefined : markdown}
+          <textarea
+            ref={textareaRef}
             defaultValue={markdown}
-            onChange={handleChange}
-            onMount={handleMount}
-            theme="vs-dark"
-            loading={
-              <div className="flex h-full items-center justify-center text-muted text-sm">
-                Loading editor...
-              </div>
-            }
-            options={{
-              fontFamily: 'monospace',
-              fontSize: 14,
-              minimap: { enabled: false },
-              scrollBeyondLastLine: false,
-            }}
+            onChange={handleInput}
+            onKeyDown={handleKeyDown}
+            placeholder="Write documentation in Markdown..."
+            spellCheck={false}
+            className="w-full h-full resize-none bg-[#0f0f13] text-[#e4e4e7] font-mono text-sm leading-relaxed p-4 outline-none placeholder:text-[#71717a]/50 selection:bg-[#6366f1]/25"
           />
         ) : (
           <MarkdownPreview />

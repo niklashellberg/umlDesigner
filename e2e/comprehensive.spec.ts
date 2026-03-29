@@ -152,13 +152,7 @@ test.describe('Group 1: Markdown Documentation', () => {
     // Switch to Docs tab, verify content
     await switchToDocsTab(page)
     await page.waitForTimeout(1500)
-    await expect(async () => {
-      const text = await page.evaluate(() => {
-        const lines = document.querySelectorAll('.monaco-editor .view-lines .view-line')
-        return Array.from(lines).map((l) => l.textContent ?? '').join('\n')
-      })
-      expect(text.replace(/\u00a0/g, ' ')).toContain('Preserved Content')
-    }).toPass({ timeout: 8000, intervals: [500] })
+    await expect(page.locator('textarea')).toHaveValue(/Preserved Content/, { timeout: 8000 })
 
     // Switch to Code tab
     await switchToCodeTab(page)
@@ -168,13 +162,7 @@ test.describe('Group 1: Markdown Documentation', () => {
     // Switch back to Docs tab, verify content still there
     await switchToDocsTab(page)
     await page.waitForTimeout(1500)
-    await expect(async () => {
-      const text = await page.evaluate(() => {
-        const lines = document.querySelectorAll('.monaco-editor .view-lines .view-line')
-        return Array.from(lines).map((l) => l.textContent ?? '').join('\n')
-      })
-      expect(text.replace(/\u00a0/g, ' ')).toContain('Preserved Content')
-    }).toPass({ timeout: 8000, intervals: [500] })
+    await expect(page.locator('textarea')).toHaveValue(/Preserved Content/, { timeout: 8000 })
   })
 
   test('docs content preserved when switching editor modes', async ({
@@ -206,13 +194,7 @@ test.describe('Group 1: Markdown Documentation', () => {
     // Switch to Docs and verify content
     await switchToDocsTab(page)
     await page.waitForTimeout(1500)
-    await expect(async () => {
-      const text = await page.evaluate(() => {
-        const lines = document.querySelectorAll('.monaco-editor .view-lines .view-line')
-        return Array.from(lines).map((l) => l.textContent ?? '').join('\n')
-      })
-      expect(text.replace(/\u00a0/g, ' ')).toContain('Mode Switch Test')
-    }).toPass({ timeout: 8000, intervals: [500] })
+    await expect(page.locator('textarea')).toHaveValue(/Mode Switch Test/, { timeout: 8000 })
   })
 
   test('empty docs shows placeholder text in preview', async ({ page, request }) => {
@@ -796,13 +778,7 @@ test.describe('Group 6: Edge Cases & Stress Tests', () => {
     // Verify docs still intact
     await switchToDocsTab(page)
     await page.waitForTimeout(1500)
-    await expect(async () => {
-      const text = await page.evaluate(() => {
-        const lines = document.querySelectorAll('.monaco-editor .view-lines .view-line')
-        return Array.from(lines).map((l) => l.textContent ?? '').join('\n')
-      })
-      expect(text.replace(/\u00a0/g, ' ')).toContain('Rapid Test')
-    }).toPass({ timeout: 8000, intervals: [500] })
+    await expect(page.locator('textarea')).toHaveValue(/Rapid Test/, { timeout: 8000 })
   })
 
   test('very long diagram title (100+ chars) persists correctly', async ({
