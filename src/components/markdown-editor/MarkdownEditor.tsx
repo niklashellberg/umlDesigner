@@ -58,21 +58,30 @@ export function MarkdownEditor({ yText, provider }: Props) {
   const [editorReady, setEditorReady] = useState(false)
   const bindingRef = useRef<{ destroy: () => void } | null>(null)
 
+  /** Safely tear down the current MonacoBinding (idempotent). */
+  const destroyBinding = useCallback(() => {
+    if (!bindingRef.current) return
+    const b = bindingRef.current as unknown as { _yjsCleanup?: () => void }
+    b._yjsCleanup?.()
+    // Yjs MonacoBinding removes its observer in destroy(). If it was
+    // already destroyed (e.g. by React strict-mode double-invoke or
+    // concurrent cleanup effects), the observer is gone and Yjs throws.
+    // We null the ref FIRST so no other code path can double-destroy.
+    const binding = bindingRef.current
+    bindingRef.current = null
+    try { binding.destroy() } catch { /* already destroyed */ }
+  }, [])
+
   // When switching away from Edit mode, destroy the binding and reset
   // editorReady so that the Yjs binding effect re-runs when the Monaco
   // editor remounts on switching back to Edit.
   useEffect(() => {
     if (viewMode !== 'edit') {
-      if (bindingRef.current) {
-        const b = bindingRef.current as unknown as { _yjsCleanup?: () => void }
-        b._yjsCleanup?.()
-        try { bindingRef.current.destroy() } catch { /* already destroyed */ }
-        bindingRef.current = null
-      }
+      destroyBinding()
       editorRef.current = null
       setEditorReady(false)
     }
-  }, [viewMode])
+  }, [viewMode, destroyBinding])
 
   // Sync store changes to Monaco when no Yjs binding is active
   const prevMarkdownRef = useRef(markdown)
@@ -101,7 +110,7 @@ export function MarkdownEditor({ yText, provider }: Props) {
       const model = editorRef.current.getModel()
       if (!model) return
 
-      bindingRef.current?.destroy()
+      destroyBinding()
 
       const binding = new MonacoBinding(
         yText,
@@ -122,12 +131,9 @@ export function MarkdownEditor({ yText, provider }: Props) {
 
     return () => {
       cancelled = true
-      const b = bindingRef.current as unknown as { _yjsCleanup?: () => void } | null
-      b?._yjsCleanup?.()
-      bindingRef.current?.destroy()
-      bindingRef.current = null
+      destroyBinding()
     }
-  }, [yText, editorReady, provider, setMarkdown])
+  }, [yText, editorReady, provider, setMarkdown, destroyBinding])
 
   const handleMount: OnMount = useCallback((_editor, monaco) => {
     editorRef.current = _editor
