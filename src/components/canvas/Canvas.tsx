@@ -150,6 +150,7 @@ function CanvasInner({
         proOptions={{ hideAttribution: true }}
         className="!bg-background"
         defaultEdgeOptions={{ type: 'uml' }}
+        disableKeyboardA11y
       >
         <Background
           variant={BackgroundVariant.Dots}
