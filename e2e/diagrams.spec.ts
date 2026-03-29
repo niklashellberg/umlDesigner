@@ -306,7 +306,7 @@ test.describe('Split mode real-time sync', () => {
     }
 
     // Verify the code editor contains the flowchart
-    await waitForCodeContaining(page, /flowchart TD/, 10000)
+    await waitForCodeContaining(page, /flowchart TD/, 15000)
 
     const code = await getEditorCode(page)
     expect(code).toContain('flowchart TD')

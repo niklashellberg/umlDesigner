@@ -30,9 +30,11 @@ type EditorMode = 'code' | 'split' | 'visual'
 
 interface Props {
   diagram: Diagram
+  projectId?: string
+  projectTitle?: string
 }
 
-export function DiagramEditor({ diagram }: Props) {
+export function DiagramEditor({ diagram, projectId, projectTitle }: Props) {
   const [mode, setMode] = useState<EditorMode>('split')
   const [codeTab, setCodeTab] = useState<'code' | 'docs'>('code')
   const [isEditingTitle, setIsEditingTitle] = useState(false)
@@ -431,13 +433,13 @@ export function DiagramEditor({ diagram }: Props) {
       <header className="relative z-[60] border-b border-border px-4 py-2 flex items-center justify-between shrink-0 bg-background/80 backdrop-blur-sm">
         <div className="flex items-center gap-3">
           <Link
-            href="/"
+            href={projectId ? `/project/${projectId}` : '/'}
             className="text-muted hover:text-foreground transition-colors text-sm flex items-center gap-1"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="opacity-70">
               <path d="M10 12L6 8L10 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            Back
+            {projectId ? projectTitle : 'Back'}
           </Link>
 
           <div className="h-4 w-px bg-border" />

@@ -392,9 +392,10 @@ test.describe('Group 3: ER Diagram Full Workflow', () => {
     }
   })
 
-  test('create ER diagram and verify default erDiagram code', async ({ page }) => {
-    const url = await createDiagram(page, 'er')
-    diagramId = extractDiagramId(url)
+  test('create ER diagram and verify default erDiagram code', async ({ page, request }) => {
+    diagramId = await createDiagramViaApi(request, { title: 'ER Default Test', type: 'er' })
+    await page.goto(`http://127.0.0.1:3000/diagram/${diagramId}`)
+    await page.waitForTimeout(2500)
 
     await switchMode(page, 'Code')
     await waitForCodeContaining(page, /erDiagram/)
