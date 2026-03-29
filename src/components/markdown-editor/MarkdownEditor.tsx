@@ -165,14 +165,11 @@ export function MarkdownEditor({ yText, provider }: Props) {
       wordWrap: 'on',
       tabSize: 2,
       insertSpaces: true,
-      folding: true,
+      folding: false,
       glyphMargin: false,
       lineDecorationsWidth: 0,
       lineNumbersMinChars: 3,
       overviewRulerBorder: false,
-      // Disable all auto-formatting for markdown — prevents Monaco from
-      // inserting "." after "#" + space (list continuation) and other
-      // unwanted transformations.
       quickSuggestions: false,
       suggestOnTriggerCharacters: false,
       acceptSuggestionOnCommitCharacter: false,
@@ -182,16 +179,8 @@ export function MarkdownEditor({ yText, provider }: Props) {
       autoSurround: 'never',
       formatOnType: false,
       formatOnPaste: false,
+      autoIndent: 'none',
     })
-
-    // Override markdown's onEnterRules that add list continuations
-    // (e.g., "1. " → "2. " on Enter). This prevents the "#. " issue.
-    const model = _editor.getModel()
-    if (model) {
-      monaco.languages.setLanguageConfiguration('markdown', {
-        onEnterRules: [],
-      })
-    }
 
     _editor.focus()
   }, [])
@@ -280,7 +269,7 @@ export function MarkdownEditor({ yText, provider }: Props) {
       <div className="flex-1 overflow-hidden">
         {viewMode === 'edit' ? (
           <Editor
-            defaultLanguage="markdown"
+            defaultLanguage="plaintext"
             value={yText ? undefined : markdown}
             defaultValue={markdown}
             onChange={handleChange}
