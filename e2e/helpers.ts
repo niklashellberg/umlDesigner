@@ -10,7 +10,7 @@ export function timestamp(): string {
 /** Create a new diagram of the given type and navigate to its editor. */
 export async function createDiagram(
   page: Page,
-  type: 'class' | 'flowchart' | 'activity' | 'sequence',
+  type: 'class' | 'flowchart' | 'activity' | 'sequence' | 'state' | 'er',
 ): Promise<string> {
   await page.goto('/')
   await page.getByRole('button', { name: 'New Diagram' }).click()
@@ -253,13 +253,13 @@ export async function createDiagramViaApi(
   request: APIRequestContext,
   options: {
     title?: string
-    type?: 'class' | 'flowchart' | 'activity' | 'sequence'
+    type?: 'class' | 'flowchart' | 'activity' | 'sequence' | 'state' | 'er'
     code?: string
   } = {},
 ): Promise<string> {
   const { title = 'Untitled Diagram', type = 'class', code } = options as {
     title: string
-    type: 'class' | 'flowchart' | 'activity' | 'sequence'
+    type: 'class' | 'flowchart' | 'activity' | 'sequence' | 'state' | 'er'
     code?: string
   }
 
