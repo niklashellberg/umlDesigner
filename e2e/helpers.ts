@@ -397,3 +397,90 @@ export async function setDiagramMarkdownViaApi(
   })
   expect(res.status()).toBe(200)
 }
+
+// ---------------------------------------------------------------------------
+// Project helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a project via the API and return its ID.
+ */
+export async function createProjectViaApi(
+  request: APIRequestContext,
+  title: string,
+): Promise<string> {
+  const res = await request.post('http://127.0.0.1:3000/api/mcp/projects', {
+    data: { title },
+  })
+  expect(res.status()).toBe(201)
+  const { id } = await res.json()
+  return id
+}
+
+/**
+ * Add a diagram to a project via the API.
+ */
+export async function addDiagramToProjectViaApi(
+  request: APIRequestContext,
+  projectId: string,
+  diagramId: string,
+): Promise<void> {
+  const res = await request.post(
+    `http://127.0.0.1:3000/api/mcp/projects/${projectId}/items`,
+    { data: { diagramId } },
+  )
+  expect(res.ok()).toBeTruthy()
+}
+
+/**
+ * Get the items array for a project via the API.
+ */
+export async function getProjectItemsViaApi(
+  request: APIRequestContext,
+  projectId: string,
+): Promise<Array<{ diagramId: string; order: number; title: string; type: string }>> {
+  const res = await request.get(`http://127.0.0.1:3000/api/mcp/projects/${projectId}`)
+  expect(res.ok()).toBeTruthy()
+  const project = await res.json()
+  return project.items
+}
+
+/**
+ * Delete a project via the API.
+ */
+export async function deleteProjectViaApi(
+  request: APIRequestContext,
+  projectId: string,
+): Promise<void> {
+  await request.delete(`http://127.0.0.1:3000/api/mcp/projects/${projectId}`)
+}
+
+/**
+ * Remove a diagram from a project via the API.
+ */
+export async function removeDiagramFromProjectViaApi(
+  request: APIRequestContext,
+  projectId: string,
+  diagramId: string,
+): Promise<void> {
+  const res = await request.delete(
+    `http://127.0.0.1:3000/api/mcp/projects/${projectId}/items`,
+    { data: { diagramId } },
+  )
+  expect(res.ok()).toBeTruthy()
+}
+
+/**
+ * Reorder items in a project via the API.
+ */
+export async function reorderProjectItemsViaApi(
+  request: APIRequestContext,
+  projectId: string,
+  items: Array<{ diagramId: string; order: number }>,
+): Promise<void> {
+  const res = await request.put(
+    `http://127.0.0.1:3000/api/mcp/projects/${projectId}/items`,
+    { data: { items } },
+  )
+  expect(res.ok()).toBeTruthy()
+}
